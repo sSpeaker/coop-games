@@ -78,16 +78,35 @@ function go(path, params) {
   location.hash = '#' + path + (qs ? '?' + qs : '');
 }
 
+// Scroll position (and, for lists, how many games were loaded) live in history.state of the
+// current entry, so Back restores them; a new link or filter change makes a fresh entry.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+let view = null;  // { token, loaded(), ready } of the page that may save its position
+function savedView() {
+  const st = history.state;
+  return st && st.hash === location.hash ? st : null;
+}
+let saveTimer = 0;
+window.addEventListener('scroll', () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveView, 120);
+}, { passive: true });
+function saveView() {
+  if (!view || view.token !== renderToken || !view.ready) return;
+  history.replaceState({ hash: location.hash, y: Math.round(window.scrollY), loaded: view.loaded() }, '');
+}
+
 window.addEventListener('hashchange', route);
 async function route() {
   const token = ++renderToken;
+  view = null;
   const { parts, params } = parseHash();
   if (!META) META = await api('/api/meta').catch(() => ({ genres: [], platforms: [] }));
   if (token !== renderToken) return;
   const qInput = $('#q');
   if (parts[0] !== 'search' && document.activeElement !== qInput) qInput.value = '';
   window.scrollTo(0, 0);
-  if (!parts.length) return renderHome();
+  if (!parts.length) return homeView(token);
   if (parts[0] === 'genre') return renderList(token, parts[1], params);
   if (parts[0] === 'search') {
     if (document.activeElement !== qInput) qInput.value = params.get('q') || '';
@@ -95,7 +114,13 @@ async function route() {
   }
   if (parts[0] === 'game') return renderGame(token, +parts[1]);
   if (parts[0] === 'status') return renderStatus(token);
+  homeView(token);
+}
+function homeView(token) {
+  const saved = savedView();
   renderHome();
+  view = { token, loaded: () => 0, ready: true };
+  if (saved) window.scrollTo(0, saved.y);
 }
 
 // ---------------------------------------------------------------- home
@@ -166,7 +191,7 @@ function stateToParams(s) {
   p.set('dir', s.dir);
   return p;
 }
-function apiParams(s, offset) {
+function apiParams(s, offset, limit = 60) {
   const p = new URLSearchParams();
   if (s.q) p.set('q', s.q);
   const genres = s.genre ? [s.genre, ...s.genres.filter((g) => g !== s.genre)] : s.genres;
@@ -184,7 +209,7 @@ function apiParams(s, offset) {
   if (s.skip === 'only') p.set('only_skipped', 'true');
   p.set('sort', s.sort);
   p.set('dir', s.dir);
-  p.set('limit', 60);
+  p.set('limit', limit);
   p.set('offset', offset);
   return p;
 }
@@ -251,23 +276,33 @@ async function renderList(token, genre, params) {
   $('#yt').onchange = (e) => apply({ ...s, yt: +e.target.value });
   $('#reset').onclick = () => apply({ ...s, q: '', genres: [], modes: [], pegi: 0, unrated: false, plats: [], yf: 0, yt: 0, played: '', want: '', skip: '' });
 
+  const saved = savedView();
   let offset = 0;
-  const load = async () => {
-    const res = await api('/api/games?' + apiParams(s, offset));
-    if (token !== renderToken) return;
+  view = { token, loaded: () => offset, ready: false };
+  const load = async (limit = 60) => {
+    const res = await api('/api/games?' + apiParams(s, offset, limit));
+    if (token !== renderToken) return false;
     $('#count').textContent = `${res.total.toLocaleString('en')} ${res.total === 1 ? 'game' : 'games'}`;
     if (!res.total) {
       $('#grid').outerHTML = '<p class="empty-note" id="grid">No games match these filters.</p>';
       $('#more').innerHTML = '';
-      return;
+      return false;
     }
     $('#grid').insertAdjacentHTML('beforeend', res.items.map(card).join(''));
     bindMarks($('#grid'));
     offset += res.items.length;
     $('#more').innerHTML = offset < res.total ? `<button type="button" class="btn" id="moreBtn">Show more (${(res.total - offset).toLocaleString('en')} left)</button>` : '';
-    if ($('#moreBtn')) $('#moreBtn').onclick = load;
+    if ($('#moreBtn')) $('#moreBtn').onclick = () => load().then(saveView);
+    return offset < res.total;
   };
-  load().catch((e) => { $('#count').textContent = 'Failed to load: ' + e.message; });
+  (async () => {
+    // Back to this list: load as many games as were shown, then return to the same spot.
+    const want = saved ? Math.max(60, saved.loaded || 0) : 60;
+    while (await load(Math.min(500, want - offset)) && offset < want);
+    if (token !== renderToken) return;
+    if (saved) window.scrollTo(0, saved.y);
+    view.ready = true;
+  })().catch((e) => { $('#count').textContent = 'Failed to load: ' + e.message; });
 }
 
 function card(g) {
