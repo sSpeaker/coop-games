@@ -150,7 +150,7 @@ function tile(x) {
 }
 
 // ---------------------------------------------------------------- list (genre or search)
-const SORTS = [['score', 'Score'], ['name', 'Name'], ['date', 'Release date']];
+const SORTS = [['score', 'OpenCritic'], ['metascore', 'Metascore'], ['name', 'Name'], ['date', 'Release date']];
 const DEFAULT_SORT = { genre: { sort: 'score', dir: 'desc' }, search: { sort: 'name', dir: 'asc' } };
 
 function listState(genre, params) {
@@ -309,7 +309,10 @@ function card(g) {
   return `<article class="card${g.played ? ' played' : ''}${g.skip ? ' skipped' : ''}" data-id="${g.id}">
     <a class="cover" href="#/game/${g.id}">
       ${g.image ? `<img src="${esc(g.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="noimg">${esc(g.name)}</span>`}
-      ${g.score ? `<span class="score" style="background:${scoreColor(g.score)}">${g.score}</span>` : '<span class="score none">n/a</span>'}
+      <span class="scores">
+        ${g.score ? `<span class="score" title="OpenCritic" style="background:${scoreColor(g.score)}"><small>OC</small>${g.score}</span>` : '<span class="score none" title="OpenCritic">OC n/a</span>'}
+        ${g.metascore ? `<span class="score mc" title="Metascore" style="background:${scoreColor(g.metascore)}"><small>MC</small>${g.metascore}</span>` : ''}
+      </span>
       ${badge(g.played, g.want, g.skip)}
     </a>
     <div class="card-body">
@@ -407,7 +410,10 @@ async function renderGame(token, id) {
       ${g.banner ? `<img class="bg" src="${esc(g.banner)}" alt="" referrerpolicy="no-referrer">` : ''}
       <div class="in">
         <div><h1>${esc(g.name)}</h1><div class="meta" style="margin-top:8px;font-size:14px">${fmtDate(g.release_date)} · ${esc(g.platforms.join(' · '))}</div></div>
-        ${g.score ? `<span class="big-score" style="background:${scoreColor(g.score)}">${g.score}</span>` : ''}
+        <div style="display:flex;gap:10px">
+          ${g.score ? `<span class="big-score" title="OpenCritic" style="background:${scoreColor(g.score)}"><small>OpenCritic</small>${g.score}</span>` : ''}
+          ${g.metascore ? `<span class="big-score" title="Metascore" style="background:${scoreColor(g.metascore)}"><small>Metascore</small>${g.metascore}</span>` : ''}
+        </div>
       </div>
     </div>
     <div class="cols">
@@ -420,7 +426,8 @@ async function renderGame(token, id) {
       <aside class="side">
         ${marks(g)}
         <div class="panel facts">
-          <div><div class="k">OpenCritic</div><div>${g.score ?? 'n/a'}</div></div>
+          <div><div class="k">OpenCritic</div><div><a href="${esc(g.url)}" target="_blank" rel="noopener">${g.score ?? 'n/a'}</a></div></div>
+          <div><div class="k">Metascore</div><div>${g.mc_url ? `<a href="${esc(g.mc_url)}" target="_blank" rel="noopener">${g.metascore ?? 'tbd'}</a>` : 'n/a'}</div></div>
           <div><div class="k">Age rating</div><div>${g.pegi ? 'PEGI ' + g.pegi : 'unknown'}</div></div>
           <div><div class="k">Released</div><div>${fmtDate(g.release_date)}</div></div>
           <div><div class="k">Platforms</div><div>${esc(g.platforms.join(', '))}</div></div>

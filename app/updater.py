@@ -13,6 +13,14 @@ _job_lock = threading.Lock()
 _stop = threading.Event()
 
 
+def mc_matches(name, release_date, page):
+    """A Metacritic page belongs to the game when titles agree and release years are within a year."""
+    if not (norm(page["name"]) == norm(name) or strip_edition(page["name"]) == strip_edition(name)):
+        return False
+    y1, y2 = year_of(release_date), year_of(page.get("release_date"))
+    return not (y1 and y2 and abs(y1 - y2) > 1)
+
+
 def now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -82,7 +90,7 @@ def run(full=False):
         errors = []
         # A failing source (e.g. a site blocking the crawler) must not stop the other steps.
         for step in (job.crawl_opencritic, job.crawl_cooptimus, job.match_cooptimus, job.build_games,
-                     job.enrich_pages, job.resolve_genres, job.fetch_pegi):
+                     job.enrich_pages, job.resolve_genres, job.fetch_metacritic, job.fetch_pegi):
             try:
                 step()
             except scrapers.StopRequested:
@@ -420,6 +428,43 @@ class Job:
                 genres = [x.strip() for x in raw.split(",") if x.strip()] or ["Other"]
                 self.conn.executemany("INSERT OR IGNORE INTO game_genre(game_id, genre) VALUES(?,?)",
                                       [(g["id"], x) for x in genres])
+
+    def fetch_metacritic(self):
+        """Metascore from the game's Metacritic page; the URL slug is derived from the title and verified."""
+        today = datetime.now(timezone.utc)
+        recent = (today - timedelta(days=config.REFRESH_RECENT_DAYS)).strftime("%Y-%m-%d")
+        stale = (today - timedelta(days=config.REFRESH_EVERY_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        retry_before = (today - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows = self.conn.execute(
+            """SELECT id, name, release_date, mc_url FROM games
+               WHERE mc_checked_at IS NULL OR ? = 1
+                  OR (metascore IS NULL AND mc_checked_at < ?)
+                  OR (release_date >= ? AND mc_checked_at < ?)
+               ORDER BY mc_checked_at IS NOT NULL, score DESC""",
+            (1 if self.full else 0, retry_before, recent, stale),
+        ).fetchall()
+        found = 0
+        for i, g in enumerate(rows, 1):
+            self.status("running", "Metacritic scores", i, len(rows))
+            urls = [g["mc_url"]] if g["mc_url"] else [f"{scrapers.METACRITIC}/game/{s}/" for s in scrapers.mc_slugs(g["name"])]
+            hit = None
+            for url in urls:
+                r = self.f.get(url, config.DELAY_METACRITIC, accept_404=True)
+                if r is None:
+                    continue
+                d = scrapers.parse_mc_game(r.text)
+                if not d or not mc_matches(g["name"], g["release_date"], d):
+                    continue
+                hit = dict(d, url=d.get("url") or url)
+                break
+            if hit and hit["metascore"]:
+                found += 1
+            with db.write_lock(), self.conn:
+                self.conn.execute(
+                    "UPDATE games SET metascore=?, mc_url=?, mc_checked_at=? WHERE id=?",
+                    (hit["metascore"] if hit else None, hit["url"] if hit else None, now_iso(), g["id"]))
+        self.stats["metacritic_checked"] = len(rows)
+        self.stats["metacritic_found"] = found
 
     def fetch_pegi(self):
         retry_before = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")

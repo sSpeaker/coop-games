@@ -71,6 +71,7 @@ def _game_dict(r, played, want=frozenset(), skip=frozenset()):
         "id": r["id"],
         "name": r["name"],
         "score": r["score"],
+        "metascore": r["metascore"],
         "pegi": r["pegi"],
         "release_date": r["release_date"],
         "genres": [x for x in (r["genre_list"] or "").split("|") if x],
@@ -145,7 +146,7 @@ def games(
     only_want: bool = False,
     show_skipped: bool = False,
     only_skipped: bool = False,
-    sort: str = Query("score", pattern="^(score|name|date)$"),
+    sort: str = Query("score", pattern="^(score|metascore|name|date)$"),
     dir: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(60, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -192,6 +193,7 @@ def games(
     d = "DESC" if dir == "desc" else "ASC"
     order = {
         "score": f"g.score IS NULL, g.score {d}, g.name COLLATE NOCASE ASC",
+        "metascore": f"g.metascore IS NULL, g.metascore {d}, g.name COLLATE NOCASE ASC",
         "name": f"g.name COLLATE NOCASE {d}",
         "date": f"g.release_date IS NULL, g.release_date {d}, g.name COLLATE NOCASE ASC",
     }[sort]
@@ -223,6 +225,7 @@ def game(gid: int):
             "banner": r["banner"] or r["image"],
             "trailers": json.loads(r["trailers"] or "[]"),
             "pegi_title": r["pegi_title"],
+            "mc_url": r["mc_url"],
             "url": f"https://opencritic.com/game/{r['id']}/{r['slug']}",
             "coop": [
                 {"platform": c["platform"], "online": c["online"], "couch": c["couch"], "lan": c["lan"],

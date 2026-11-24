@@ -200,6 +200,45 @@ def parse_oc_game(html):
     return data
 
 
+# ---------------------------------------------------------------- Metacritic
+
+METACRITIC = "https://www.metacritic.com"
+
+
+def mc_slugs(name):
+    """Candidate Metacritic URL slugs: full title, then without edition words."""
+    def slug(s, amp):
+        s = s.replace("'", "").replace("’", "").replace("&", amp)
+        return norm(s).replace(" ", "-")
+    out = []
+    # Metacritic drops "&" ("ratchet-clank-rift-apart"); some older slugs spell it out.
+    for s in (slug(name, " "), slug(name, " and "), strip_edition(name).replace(" ", "-")):
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def parse_mc_game(html):
+    """Name, release date and Metascore from the VideoGame ld+json of a Metacritic game page."""
+    soup = BeautifulSoup(html, "lxml")
+    for s in soup.find_all("script", type="application/ld+json"):
+        try:
+            obj = json.loads(s.string or "")
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict) or obj.get("@type") != "VideoGame":
+            continue
+        rating = obj.get("aggregateRating") or {}
+        rv = rating.get("ratingValue")
+        return {
+            "name": obj.get("name") or "",
+            "release_date": parse_date(obj.get("datePublished")),
+            "metascore": round(rv) if isinstance(rv, (int, float)) and rv > 0 else None,
+            "url": obj.get("url"),
+        }
+    return None
+
+
 # ---------------------------------------------------------------- Co-optimus
 
 def coopt_url(system_id, page):

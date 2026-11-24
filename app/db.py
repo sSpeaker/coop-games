@@ -121,10 +121,22 @@ def connect():
     return conn
 
 
+# Columns added after the first release: (table, column, type)
+MIGRATIONS = [
+    ("games", "metascore", "INTEGER"),
+    ("games", "mc_url", "TEXT"),
+    ("games", "mc_checked_at", "TEXT"),
+]
+
+
 def init():
     conn = connect()
     with conn:
         conn.executescript(SCHEMA)
+        for table, col, typ in MIGRATIONS:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
     conn.close()
 
 

@@ -22,6 +22,7 @@ DELAY_OPENCRITIC = float(os.environ.get("DELAY_OPENCRITIC", "0.6"))
 DELAY_COOPTIMUS = float(os.environ.get("DELAY_COOPTIMUS", "0.6"))
 DELAY_PEGI = float(os.environ.get("DELAY_PEGI", "1.0"))
 DELAY_STEAM = float(os.environ.get("DELAY_STEAM", "1.0"))
+DELAY_METACRITIC = float(os.environ.get("DELAY_METACRITIC", "1.0"))
 BACKOFF_429 = float(os.environ.get("BACKOFF_429", "60"))
 
 # Re-fetch game pages of recent games (score, trailers) when older than this many days

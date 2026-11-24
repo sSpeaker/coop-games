@@ -219,3 +219,43 @@ def test_cooptimus_blocked_keeps_player_counts():
     row = conn.execute("SELECT online, features, score FROM games WHERE id=1").fetchone()
     assert row["online"] == 4 and "Split-Screen" in row["features"] and row["score"] == 91
     conn.close()
+
+
+MC_GAME = """<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame",
+"name":"Split Fiction","datePublished":"2025-03-06","url":"https://www.metacritic.com/game/split-fiction/",
+"aggregateRating":{"@type":"AggregateRating","name":"Metascore","ratingValue":91,"reviewCount":116}}</script></head></html>"""
+
+
+def test_metacritic_parse_and_match():
+    d = scrapers.parse_mc_game(MC_GAME)
+    assert d == {"name": "Split Fiction", "release_date": "2025-03-06", "metascore": 91,
+                 "url": "https://www.metacritic.com/game/split-fiction/"}
+    assert updater.mc_matches("Split Fiction", "2025-03-06", d)
+    assert not updater.mc_matches("Split Fiction", "2015-01-01", d)
+    assert not updater.mc_matches("Split Fiction 2", "2025-03-06", d)
+    assert scrapers.mc_slugs("Ratchet & Clank: Rift Apart") == ["ratchet-clank-rift-apart", "ratchet-and-clank-rift-apart"]
+
+
+class _MCFetcher:
+    def get(self, url, delay, params=None, accept_404=False, headers=None):
+        class R:
+            text = MC_GAME
+        return R() if url.endswith("/game/split-fiction/") else None
+
+
+def test_fetch_metacritic_and_sort():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    conn = db.connect()
+    with conn:
+        conn.execute("""INSERT OR REPLACE INTO games(id, slug, name, norm, score, release_date, genres)
+                        VALUES(18192, 'split-fiction', 'Split Fiction', 'split fiction', 91, '2025-03-06', 'Action')""")
+    job = updater.Job(conn, _MCFetcher(), False)
+    job.fetch_metacritic()
+    row = conn.execute("SELECT metascore, mc_url FROM games WHERE id=18192").fetchone()
+    assert row["metascore"] == 91 and row["mc_url"].endswith("/split-fiction/")
+    conn.close()
+    with TestClient(app) as c:
+        items = c.get("/api/games?sort=metascore&dir=desc").json()["items"]
+        assert items[0]["name"] == "Split Fiction" and items[0]["metascore"] == 91
+        assert c.get("/api/games/18192").json()["mc_url"].endswith("/split-fiction/")

@@ -87,7 +87,10 @@ select.sel { height: 38px; border-radius: 10px; border: 1px solid var(--line2); 
 .cover { position: relative; display: block; aspect-ratio: 460 / 215; background: #232731; }
 .cover img { width: 100%; height: 100%; object-fit: cover; }
 .cover .noimg { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--head); font-size: 22px; color: #4b5160; padding: 10px; text-align: center; }
-.score { position: absolute; top: 10px; right: 10px; min-width: 40px; height: 40px; padding: 0 6px; border-radius: 10px; display: grid; place-items: center; font-family: var(--head); font-weight: 700; font-size: 18px; color: var(--accent-ink); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+.scores { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.score { min-width: 44px; height: 40px; padding: 0 6px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; font-family: var(--head); font-weight: 700; font-size: 18px; color: var(--accent-ink); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+.score small { font-size: 9px; letter-spacing: .08em; opacity: .7; margin-bottom: 2px; }
+.score.mc { height: 34px; font-size: 15px; }
 .score.none { background: #3a404c; color: var(--muted); font-size: 13px; }
 .badge-played { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px; background: #1f3a2a; color: var(--played); font-size: 12px; font-weight: 700; }
 .card-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
@@ -124,7 +127,8 @@ select.sel { height: 38px; border-radius: 10px; border: 1px solid var(--line2); 
 .game-hero img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .game-hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,17,21,.1), rgba(15,17,21,.92)); }
 .game-hero .in { position: relative; z-index: 1; padding: 24px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; width: 100%; }
-.game-hero .big-score { min-width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center; font-family: var(--head); font-weight: 700; font-size: 28px; color: var(--accent-ink); }
+.game-hero .big-score { min-width: 76px; height: 68px; padding: 0 8px; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; font-family: var(--head); font-weight: 700; font-size: 28px; color: var(--accent-ink); }
+.game-hero .big-score small { font-size: 10px; letter-spacing: .06em; opacity: .7; margin-bottom: 4px; font-weight: 600; }
 .cols { display: flex; flex-wrap: wrap; gap: 28px; }
 .cols .main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .cols .side { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
