@@ -271,7 +271,7 @@ async function renderList(token, genre, params) {
 }
 
 function card(g) {
-  return `<article class="card${g.played ? ' played' : ''}" data-id="${g.id}">
+  return `<article class="card${g.played ? ' played' : ''}${g.skip ? ' skipped' : ''}" data-id="${g.id}">
     <a class="cover" href="#/game/${g.id}">
       ${g.image ? `<img src="${esc(g.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="noimg">${esc(g.name)}</span>`}
       ${g.score ? `<span class="score" style="background:${scoreColor(g.score)}">${g.score}</span>` : '<span class="score none">n/a</span>'}
