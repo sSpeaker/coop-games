@@ -16,16 +16,23 @@ services:
       # Import automatically when the database is empty
       UPDATE_ON_EMPTY_START: "1"
       LOG_LEVEL: INFO
-    x-casaos:
-      architectures:
-        - amd64
-        - arm64
-      main: coop-games
-      category: Entertainment
-      title:
-        en_us: Co-op Games
-      description:
-        en_us: Co-op game catalog built from OpenCritic, Co-optimus and PEGI.
-      port_map: "8095"
-      scheme: http
-      index: /
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: coop-games
+  author: sSpeaker
+  developer: sSpeaker
+  category: Entertainment
+  icon: https://cdn.jsdelivr.net/gh/sSpeaker/coop-games@main/app/static/icon.svg
+  title:
+    en_us: Co-op Games
+  tagline:
+    en_us: Co-op game catalog for PC, PlayStation and Switch
+  description:
+    en_us: Co-op game catalog built from OpenCritic, Co-optimus and PEGI.
+  index: /
+  port_map: "8095"
+  scheme: http
+  repo: https://github.com/sSpeaker/coop-games
