@@ -8,18 +8,29 @@ Self-hosted catalog of co-op games for PC, PS4, PS5, Switch and Switch 2.
 
 ## Run on CasaOS
 
-CasaOS cannot build images from its web UI, so build once over SSH:
+The image is built by GitHub Actions on every push to `main` and published as `ghcr.io/sspeaker/coop-games` (`linux/amd64` and `linux/arm64`; tags `latest` and `sha-<commit>`). Only `docker-compose.yml` is needed on the host:
 
 ```sh
-scp -r coop-games user@casaos:/DATA/AppData/coop-games-src
-ssh user@casaos
-cd /DATA/AppData/coop-games-src
-docker compose up -d --build
+ssh root@casaos 'mkdir -p /var/lib/casaos/apps/coop-games'
+scp docker-compose.yml root@casaos:/var/lib/casaos/apps/coop-games/
+ssh root@casaos 'cd /var/lib/casaos/apps/coop-games && docker compose up -d'
 ```
 
 The app shows up on the CasaOS dashboard (the `x-casaos` block in `docker-compose.yml`). Open `http://<casaos-ip>:8095`.
 
 Data lives in `/DATA/AppData/coop-games` on the host. Change the port or path in `docker-compose.yml`.
+
+### Updating the app
+
+Push to `main`, wait for the "Docker image" workflow, then on the host:
+
+```sh
+cd /var/lib/casaos/apps/coop-games && docker compose pull && docker compose up -d
+```
+
+The database in `/DATA/AppData/coop-games` is kept. To roll back, pin `image:` to a `sha-<commit>` tag.
+
+To build locally instead: `docker build -t ghcr.io/sspeaker/coop-games:latest .`
 
 ## First start
 

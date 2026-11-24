@@ -2,8 +2,7 @@ name: coop-games
 
 services:
   coop-games:
-    build: .
-    image: coop-games:latest
+    image: ghcr.io/sspeaker/coop-games:latest
     container_name: coop-games
     restart: unless-stopped
     ports:
