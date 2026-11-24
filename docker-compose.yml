@@ -16,6 +16,22 @@ services:
       # Import automatically when the database is empty
       UPDATE_ON_EMPTY_START: "1"
       LOG_LEVEL: INFO
+    x-casaos:
+      envs:
+        - container: TZ
+          description:
+            en_us: Time zone
+        - container: UPDATE_INTERVAL_HOURS
+          description:
+            en_us: Hours between automatic database updates (0 = off)
+      ports:
+        - container: "8080"
+          description:
+            en_us: WebUI port
+      volumes:
+        - container: /data
+          description:
+            en_us: SQLite database (games and played marks)
 
 x-casaos:
   architectures:
