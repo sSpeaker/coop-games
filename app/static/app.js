@@ -53,6 +53,8 @@ const genreColor = (g) => (GENRE[g] || GENRE.Other)[0];
 const glyph = (g, size = 22) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${(GENRE[g] || GENRE.Other)[1]}"/></svg>`;
 const ICON = {
   check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>',
+  bookmark: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11v17l-5.5-4-5.5 4z"/></svg>',
+  bookmarkOn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11v17l-5.5-4-5.5 4z"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   up: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   down: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
@@ -140,6 +142,7 @@ function listState(genre, params) {
     yf: +params.get('yf') || 0,
     yt: +params.get('yt') || 0,
     played: params.get('played') || '',
+    want: params.get('want') || '',
     sort: params.get('sort') || saved.sort,
     dir: params.get('dir') || saved.dir,
   };
@@ -155,6 +158,7 @@ function stateToParams(s) {
   if (s.yf) p.set('yf', s.yf);
   if (s.yt) p.set('yt', s.yt);
   if (s.played) p.set('played', s.played);
+  if (s.want) p.set('want', s.want);
   p.set('sort', s.sort);
   p.set('dir', s.dir);
   return p;
@@ -171,6 +175,8 @@ function apiParams(s, offset) {
   if (s.yt) p.set('year_to', s.yt);
   if (s.played === 'hide') p.set('hide_played', 'true');
   if (s.played === 'only') p.set('only_played', 'true');
+  if (s.want === 'hide') p.set('hide_want', 'true');
+  if (s.want === 'only') p.set('only_want', 'true');
   p.set('sort', s.sort);
   p.set('dir', s.dir);
   p.set('limit', 60);
@@ -184,7 +190,7 @@ function apply(s) {
 
 async function renderList(token, genre, params) {
   const s = listState(genre, params);
-  const title = genre || (s.played === 'only' ? 'Played games' : s.q ? `Results for “${s.q}”` : 'All games');
+  const title = genre || (s.played === 'only' ? 'Played games' : s.want === 'only' ? 'Want to play' : s.q ? `Results for “${s.q}”` : 'All games');
   const years = [];
   for (let y = (META.year_max || new Date().getFullYear()); y >= (META.year_min || 1990); y--) years.push(y);
   const pill = (on, attrs, label, cls = '') => `<button type="button" class="pill ${cls}" aria-pressed="${on}" ${attrs}>${esc(label)}</button>`;
@@ -215,6 +221,8 @@ async function renderList(token, genre, params) {
           <select class="sel" id="yt" aria-label="Released to year"><option value="0">to any</option>${years.map((y) => `<option ${y === s.yt ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
         <div class="fgroup"><span class="lbl" style="width:auto">Played</span>
           ${[['', 'All'], ['hide', 'Hide'], ['only', 'Only']].map(([k, l]) => pill(s.played === k, `data-played="${k}"`, l)).join('')}</div>
+        <div class="fgroup"><span class="lbl" style="width:auto">Want to play</span>
+          ${[['', 'All'], ['hide', 'Hide'], ['only', 'Only']].map(([k, l]) => pill(s.want === k, `data-want="${k}"`, l)).join('')}</div>
         <button type="button" class="linkbtn" id="reset">Reset filters</button>
       </div>
     </div>
@@ -229,10 +237,11 @@ async function renderList(token, genre, params) {
   app.querySelectorAll('[data-plat]').forEach((b) => b.onclick = () => apply({ ...s, plats: toggle(s.plats, b.dataset.plat) }));
   app.querySelectorAll('[data-pegi]').forEach((b) => b.onclick = () => apply({ ...s, pegi: +b.dataset.pegi }));
   app.querySelectorAll('[data-played]').forEach((b) => b.onclick = () => apply({ ...s, played: b.dataset.played }));
+  app.querySelectorAll('[data-want]').forEach((b) => b.onclick = () => apply({ ...s, want: b.dataset.want }));
   if ($('#unrated')) $('#unrated').onchange = (e) => apply({ ...s, unrated: e.target.checked });
   $('#yf').onchange = (e) => apply({ ...s, yf: +e.target.value });
   $('#yt').onchange = (e) => apply({ ...s, yt: +e.target.value });
-  $('#reset').onclick = () => apply({ ...s, q: '', genres: [], modes: [], pegi: 0, unrated: false, plats: [], yf: 0, yt: 0, played: '' });
+  $('#reset').onclick = () => apply({ ...s, q: '', genres: [], modes: [], pegi: 0, unrated: false, plats: [], yf: 0, yt: 0, played: '', want: '' });
 
   let offset = 0;
   const load = async () => {
@@ -245,7 +254,7 @@ async function renderList(token, genre, params) {
       return;
     }
     $('#grid').insertAdjacentHTML('beforeend', res.items.map(card).join(''));
-    bindPlayed($('#grid'));
+    bindMarks($('#grid'));
     offset += res.items.length;
     $('#more').innerHTML = offset < res.total ? `<button type="button" class="btn" id="moreBtn">Show more (${(res.total - offset).toLocaleString('en')} left)</button>` : '';
     if ($('#moreBtn')) $('#moreBtn').onclick = load;
@@ -258,7 +267,7 @@ function card(g) {
     <a class="cover" href="#/game/${g.id}">
       ${g.image ? `<img src="${esc(g.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="noimg">${esc(g.name)}</span>`}
       ${g.score ? `<span class="score" style="background:${scoreColor(g.score)}">${g.score}</span>` : '<span class="score none">n/a</span>'}
-      ${g.played ? `<span class="badge-played">${ICON.check} Played</span>` : ''}
+      ${badge(g.played, g.want)}
     </a>
     <div class="card-body">
       <div class="card-title"><a href="#/game/${g.id}">${esc(g.name)}</a>${g.pegi ? `<span class="pegi p${g.pegi}" title="PEGI age rating">PEGI ${g.pegi}</span>` : ''}</div>
@@ -269,31 +278,52 @@ function card(g) {
         <div><span class="k">Couch</span><span class="v${g.couch ? '' : ' no'}">${players(g.couch)}</span></div>
         <div><span class="k">LAN</span><span class="v${g.lan ? '' : ' no'}">${players(g.lan)}</span></div>
       </div>
-      ${playButton(g)}
+      ${marks(g)}
     </div>
   </article>`;
 }
-function playButton(g) {
-  return `<button type="button" class="play-btn" data-played-id="${g.id}" aria-pressed="${g.played}">${g.played ? ICON.check + ' Played' : ICON.plus + ' Mark as played'}</button>`;
+const MARK_LABEL = {
+  played: [ICON.plus + ' Mark as played', ICON.check + ' Played'],
+  want: [ICON.bookmark + ' Want to play', ICON.bookmarkOn + ' Want to play'],
+};
+function marks(g) {
+  return `<div class="actions">
+    <button type="button" class="play-btn" data-played-id="${g.id}" aria-pressed="${g.played}">${MARK_LABEL.played[+g.played]}</button>
+    <button type="button" class="play-btn want-btn" data-want-id="${g.id}" aria-pressed="${g.want}">${MARK_LABEL.want[+g.want]}</button>
+  </div>`;
 }
-function bindPlayed(root) {
-  root.querySelectorAll('[data-played-id]:not([data-bound])').forEach((b) => {
+function badge(played, want) {
+  if (played) return `<span class="badge-played">${ICON.check} Played</span>`;
+  if (want) return `<span class="badge-played badge-want">${ICON.bookmarkOn} Want to play</span>`;
+  return '';
+}
+function setMark(scope, kind, on) {
+  const b = scope.querySelector(kind === 'played' ? '[data-played-id]' : '[data-want-id]');
+  if (!b) return;
+  b.setAttribute('aria-pressed', on);
+  b.innerHTML = MARK_LABEL[kind][+on];
+}
+function bindMarks(root) {
+  root.querySelectorAll('[data-played-id]:not([data-bound]), [data-want-id]:not([data-bound])').forEach((b) => {
     b.dataset.bound = '1';
+    const kind = b.dataset.playedId ? 'played' : 'want';
+    const id = b.dataset.playedId || b.dataset.wantId;
     b.onclick = async () => {
-      const id = b.dataset.playedId;
       const on = b.getAttribute('aria-pressed') !== 'true';
       b.disabled = true;
       try {
-        await api('/api/played/' + id, { method: on ? 'PUT' : 'DELETE' });
-        b.setAttribute('aria-pressed', on);
-        b.innerHTML = on ? ICON.check + ' Played' : ICON.plus + ' Mark as played';
+        const res = await api(`/api/${kind}/${id}`, { method: on ? 'PUT' : 'DELETE' });
+        const scope = b.closest('.actions');
+        setMark(scope, kind, on);
+        if ('want' in res && kind === 'played') setMark(scope, 'want', res.want);  // played games leave the list
         const cardEl = b.closest('.card');
         if (cardEl) {
-          cardEl.classList.toggle('played', on);
+          const played = scope.querySelector('[data-played-id]').getAttribute('aria-pressed') === 'true';
+          const want = scope.querySelector('[data-want-id]').getAttribute('aria-pressed') === 'true';
+          cardEl.classList.toggle('played', played);
           const cover = cardEl.querySelector('.cover');
-          const badge = cover.querySelector('.badge-played');
-          if (on && !badge) cover.insertAdjacentHTML('beforeend', `<span class="badge-played">${ICON.check} Played</span>`);
-          if (!on && badge) badge.remove();
+          cover.querySelectorAll('.badge-played').forEach((x) => x.remove());
+          cover.insertAdjacentHTML('beforeend', badge(played, want));
         }
         refreshStatus();
       } finally { b.disabled = false; }
@@ -326,7 +356,7 @@ async function renderGame(token, id) {
         ${g.description ? `<div class="panel"><h2>About</h2><div class="desc">${esc(g.description)}</div></div>` : ''}
       </div>
       <aside class="side">
-        ${playButton(g)}
+        ${marks(g)}
         <div class="panel facts">
           <div><div class="k">OpenCritic</div><div>${g.score ?? 'n/a'}</div></div>
           <div><div class="k">Age rating</div><div>${g.pegi ? 'PEGI ' + g.pegi : 'unknown'}</div></div>
@@ -344,7 +374,7 @@ async function renderGame(token, id) {
         <a href="${esc(g.url)}" target="_blank" rel="noopener">View on OpenCritic</a>
       </aside>
     </div>`;
-  bindPlayed(app);
+  bindMarks(app);
   app.querySelectorAll('[data-yt]').forEach((b) => b.onclick = () => {
     $('#video').innerHTML = iframe(b.dataset.yt);
     app.querySelectorAll('[data-yt]').forEach((x) => x.setAttribute('aria-pressed', x === b));
@@ -371,6 +401,7 @@ async function renderStatus(token) {
       <div class="status-grid">
         <div class="panel stat"><div class="muted">Games</div><div class="n">${st.games.toLocaleString('en')}</div></div>
         <div class="panel stat"><div class="muted">Played</div><div class="n">${st.played}</div></div>
+        <div class="panel stat"><div class="muted">Want to play</div><div class="n">${st.want ?? 0}</div></div>
         <div class="panel stat"><div class="muted">Last update</div><div style="margin-top:6px">${st.last_update_at ? new Date(st.last_update_at).toLocaleString('en-GB') : 'never'}</div><div class="muted" style="font-size:13px">${esc(st.last_result || '')}</div></div>
         <div class="panel stat"><div class="muted">Auto update</div><div style="margin-top:6px">${st.interval_hours > 0 ? 'every ' + st.interval_hours + ' h' : 'off'}</div></div>
       </div>
@@ -494,6 +525,7 @@ async function refreshStatus() {
   try {
     const st = await api('/api/status');
     $('#playedCount').textContent = st.played;
+    $('#wantCount').textContent = st.want ?? 0;
     const dot = $('#statusDot');
     dot.className = 'dot ' + (st.running ? 'run' : (st.last_result || '').startsWith('error') ? 'err' : st.games ? 'ok' : '');
     $('#statusLink').title = st.running ? 'Updating: ' + (st.step || '') : 'Database status';

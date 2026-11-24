@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS played (
     played_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS want (
+    game_id  INTEGER PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS overrides (
     game_id INTEGER NOT NULL,
     field   TEXT NOT NULL,

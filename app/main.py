@@ -66,7 +66,7 @@ def index():
     return FileResponse(os.path.join(STATIC, "index.html"))
 
 
-def _game_dict(r, played):
+def _game_dict(r, played, want=frozenset()):
     return {
         "id": r["id"],
         "name": r["name"],
@@ -81,6 +81,7 @@ def _game_dict(r, played):
         "lan": r["lan"],
         "features": json.loads(r["features"] or "[]"),
         "played": r["id"] in played,
+        "want": r["id"] in want,
     }
 
 
@@ -137,6 +138,8 @@ def games(
     year_to: int = 0,
     hide_played: bool = False,
     only_played: bool = False,
+    hide_want: bool = False,
+    only_want: bool = False,
     sort: str = Query("score", pattern="^(score|name|date)$"),
     dir: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(60, ge=1, le=500),
@@ -172,6 +175,10 @@ def games(
         where.append("g.id NOT IN (SELECT game_id FROM played)")
     if only_played:
         where.append("g.id IN (SELECT game_id FROM played)")
+    if hide_want:
+        where.append("g.id NOT IN (SELECT game_id FROM want)")
+    if only_want:
+        where.append("g.id IN (SELECT game_id FROM want)")
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     d = "DESC" if dir == "desc" else "ASC"
     order = {
@@ -184,7 +191,8 @@ def games(
         total = conn.execute(f"SELECT COUNT(*) FROM games g{wsql}", args).fetchone()[0]
         rows = conn.execute(f"{BASE_SELECT}{wsql} ORDER BY {order} LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
         played = {r[0] for r in conn.execute("SELECT game_id FROM played")}
-        return {"total": total, "items": [_game_dict(r, played) for r in rows]}
+        want = {r[0] for r in conn.execute("SELECT game_id FROM want")}
+        return {"total": total, "items": [_game_dict(r, played, want) for r in rows]}
     finally:
         conn.close()
 
@@ -197,7 +205,8 @@ def game(gid: int):
         if not r:
             raise HTTPException(404)
         played = {x[0] for x in conn.execute("SELECT game_id FROM played WHERE game_id=?", (gid,))}
-        out = _game_dict(r, played)
+        want = {x[0] for x in conn.execute("SELECT game_id FROM want WHERE game_id=?", (gid,))}
+        out = _game_dict(r, played, want)
         out.update({
             "description": r["description"],
             "banner": r["banner"] or r["image"],
@@ -225,7 +234,9 @@ def mark_played(gid: int):
             if not conn.execute("SELECT 1 FROM games WHERE id=?", (gid,)).fetchone():
                 raise HTTPException(404)
             conn.execute("INSERT OR IGNORE INTO played(game_id, played_at) VALUES(?, ?)", (gid, updater.now_iso()))
-        return {"played": True}
+            # A played game leaves the want-to-play list.
+            conn.execute("DELETE FROM want WHERE game_id=?", (gid,))
+        return {"played": True, "want": False}
     finally:
         conn.close()
 
@@ -241,6 +252,30 @@ def unmark_played(gid: int):
         conn.close()
 
 
+@app.put("/api/want/{gid}")
+def mark_want(gid: int):
+    conn = db.connect()
+    try:
+        with db.write_lock(), conn:
+            if not conn.execute("SELECT 1 FROM games WHERE id=?", (gid,)).fetchone():
+                raise HTTPException(404)
+            conn.execute("INSERT OR IGNORE INTO want(game_id, added_at) VALUES(?, ?)", (gid, updater.now_iso()))
+        return {"want": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/want/{gid}")
+def unmark_want(gid: int):
+    conn = db.connect()
+    try:
+        with db.write_lock(), conn:
+            conn.execute("DELETE FROM want WHERE game_id=?", (gid,))
+        return {"want": False}
+    finally:
+        conn.close()
+
+
 @app.get("/api/status")
 def status():
     conn = db.connect()
@@ -249,6 +284,7 @@ def status():
         return {
             "games": conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
             "played": conn.execute("SELECT COUNT(*) FROM played").fetchone()[0],
+            "want": conn.execute("SELECT COUNT(*) FROM want").fetchone()[0],
             "running": updater.is_running(),
             "step": m.get("update_step"),
             "done": m.get("update_done"),

@@ -1,7 +1,7 @@
 :root {
   --bg: #0f1115; --panel: #181b22; --panel2: #14171d; --line: #262a33; --line2: #2c313c;
   --text: #e8eaef; --muted: #a3a9b6; --accent: #f5b041; --accent-ink: #0f1115;
-  --good: #5fd38a; --mid: #f5c26b; --bad: #ff9b7a; --played: #7ee2a2;
+  --good: #5fd38a; --mid: #f5c26b; --bad: #ff9b7a; --played: #7ee2a2; --want: #8fb8ff;
   --head: 'Space Grotesk', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -105,6 +105,11 @@ select.sel { height: 38px; border-radius: 10px; border: 1px solid var(--line2); 
 .coop .v.no { color: #5b6170; font-weight: 500; }
 .play-btn { min-height: 42px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line2); background: var(--panel); color: var(--text); }
 .play-btn[aria-pressed="true"] { background: #1f3a2a; border-color: #2f6b46; color: var(--played); }
+.actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.actions .play-btn { padding: 0 8px; }
+.card .actions .play-btn { font-size: 13px; gap: 6px; }
+.want-btn[aria-pressed="true"] { background: #1f2a3f; border-color: #34507a; color: var(--want); }
+.badge-want { background: #1f2a3f; color: var(--want); }
 
 /* game page */
 .game-hero { position: relative; border-radius: 18px; overflow: hidden; margin: 8px 0 24px; min-height: 220px; display: flex; align-items: flex-end; background: var(--panel); border: 1px solid var(--line); }

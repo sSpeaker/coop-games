@@ -128,12 +128,24 @@ def test_api():
         assert names(c.get("/api/games?platforms=Switch")) == ["Beta Couch"]
         assert names(c.get("/api/games?year_from=2019&year_to=2021")) == ["Alpha Co-op"]
         assert names(c.get("/api/games?q=co op")) == ["Alpha Co-op"]
-        assert c.put("/api/played/2").json() == {"played": True}
+        assert c.put("/api/played/2").json() == {"played": True, "want": False}
         assert names(c.get("/api/games?hide_played=true")) == ["Alpha Co-op", "Gamma Party"]
         assert names(c.get("/api/games?only_played=true")) == ["Beta Couch"]
         g = c.get("/api/games/1").json()
         assert g["coop"][0]["online"] == 4 and g["trailers"][0]["id"] == "0TlySOphMuo"
         assert c.get("/api/status").json()["played"] == 1
+        # want to play: own list, filters, and marking a game played takes it off the list
+        assert c.put("/api/want/1").json() == {"want": True}
+        assert c.put("/api/want/3").json() == {"want": True}
+        assert c.put("/api/want/999").status_code == 404
+        assert names(c.get("/api/games?only_want=true")) == ["Alpha Co-op", "Gamma Party"]
+        assert names(c.get("/api/games?hide_want=true")) == ["Beta Couch"]
+        assert c.get("/api/games/1").json()["want"] is True
+        assert c.put("/api/played/3").json() == {"played": True, "want": False}
+        assert names(c.get("/api/games?only_want=true")) == ["Alpha Co-op"]
+        assert c.delete("/api/want/1").json() == {"want": False}
+        st = c.get("/api/status").json()
+        assert (st["played"], st["want"]) == (2, 0)
         assert c.get("/").status_code == 200 and c.get("/static/app.js").status_code == 200
 
 
