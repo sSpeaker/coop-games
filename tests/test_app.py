@@ -259,3 +259,40 @@ def test_fetch_metacritic_and_sort():
         items = c.get("/api/games?sort=metascore&dir=desc").json()["items"]
         assert items[0]["name"] == "Split Fiction" and items[0]["metascore"] == 91
         assert c.get("/api/games/18192").json()["mc_url"].endswith("/split-fiction/")
+
+
+def test_fetcher_treats_410_as_missing():
+    class Resp:
+        def __init__(self, code):
+            self.status_code, self.text = code, "gone"
+    f = scrapers.Fetcher()
+    f._request = lambda url, params, h: Resp(410)
+    assert f.get("https://www.metacritic.com/game/takeover/", 0, accept_404=True) is None
+    f._request = lambda url, params, h: Resp(400)
+    try:
+        f.get("https://www.metacritic.com/game/x/", 0, accept_404=True)
+        raise AssertionError("400 must raise")
+    except scrapers.HTTPStatusError as e:
+        assert e.status == 400
+
+
+class _MCOddFetcher(_MCFetcher):
+    """First game's page answers 400, the next game is fine."""
+
+    def get(self, url, delay, params=None, accept_404=False, headers=None):
+        if "/game/odd-one/" in url:
+            raise scrapers.HTTPStatusError(url, 400, "bad request")
+        return super().get(url, delay, params, accept_404, headers)
+
+
+def test_fetch_metacritic_skips_odd_page():
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE games SET mc_checked_at=NULL, metascore=NULL, mc_url=NULL")
+        conn.execute("""INSERT OR REPLACE INTO games(id, slug, name, norm, score, release_date, genres)
+                        VALUES(77, 'odd-one', 'Odd One', 'odd one', 99, '2024-01-01', 'Action')""")
+    job = updater.Job(conn, _MCOddFetcher(), False)
+    job.fetch_metacritic()  # must not raise
+    assert conn.execute("SELECT mc_checked_at IS NOT NULL FROM games WHERE id=77").fetchone()[0] == 1
+    assert conn.execute("SELECT metascore FROM games WHERE id=18192").fetchone()[0] == 91
+    conn.close()

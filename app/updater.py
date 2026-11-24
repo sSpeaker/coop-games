@@ -449,7 +449,14 @@ class Job:
             urls = [g["mc_url"]] if g["mc_url"] else [f"{scrapers.METACRITIC}/game/{s}/" for s in scrapers.mc_slugs(g["name"])]
             hit = None
             for url in urls:
-                r = self.f.get(url, config.DELAY_METACRITIC, accept_404=True)
+                try:
+                    r = self.f.get(url, config.DELAY_METACRITIC, accept_404=True)
+                except scrapers.HTTPStatusError as e:
+                    # One odd page must not stop the step; blocking (403/429) and outages still do.
+                    if e.status in (0, 403, 429) or e.status >= 500:
+                        raise
+                    log.warning("Metacritic %s: skipping game %s (%s)", e.status, g["id"], url)
+                    continue
                 if r is None:
                     continue
                 d = scrapers.parse_mc_game(r.text)

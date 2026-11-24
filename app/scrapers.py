@@ -102,7 +102,7 @@ class Fetcher:
                 log.warning("GET %s -> %s, sleeping %ss", url, r.status_code, wait)
                 time.sleep(wait)
                 continue
-            if r.status_code == 404 and accept_404:
+            if r.status_code in (404, 410) and accept_404:  # 410 Gone: Metacritic's answer for removed pages
                 return None
             if r.status_code == 403 and attempt < 2:
                 log.warning("GET %s -> 403, retrying", url)
