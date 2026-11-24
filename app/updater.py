@@ -4,6 +4,8 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 
+import httpx
+
 from . import config, db, scrapers
 from .text import norm, strip_edition, year_of
 
@@ -69,6 +71,7 @@ class Job:
         self.f = fetcher
         self.full = full
         self.stats = {}
+        self.coopt_ok = True  # False when Co-optimus could not be read; build_games then keeps player counts
 
     # ------------------------------------------------------------ status
 
@@ -179,7 +182,17 @@ class Job:
             rows, page, last = [], 1, 1
             while page <= last:
                 self.status("running", f"Co-optimus · {platform}", page, last)
-                r = self.f.get(scrapers.coopt_url(system, page), config.DELAY_COOPTIMUS)
+                url = scrapers.coopt_url(system, page)
+                try:
+                    r = self.f.get(url, config.DELAY_COOPTIMUS)
+                except (httpx.HTTPError, RuntimeError) as e:
+                    # Co-optimus only adds player counts; don't let it block covers, trailers and PEGI.
+                    code = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else type(e).__name__
+                    log.warning("Co-optimus unavailable (%s at %s); skipping it, previous player counts are kept",
+                                code, url)
+                    self.coopt_ok = False
+                    self.stats["coopt_error"] = f"{code} {url}"
+                    return
                 got, lp = scrapers.parse_coopt_page(r.text)
                 last = max(last, lp)
                 if not got:
@@ -241,6 +254,9 @@ class Job:
         ids |= {r[0] for r in self.conn.execute(
             "SELECT DISTINCT c.oc_id FROM coopt c JOIN catalog_platform p ON p.oc_id=c.oc_id WHERE c.oc_id IS NOT NULL")}
         ts = now_iso()
+        # Without fresh Co-optimus data keep the stored player counts, features and source.
+        coopt_set = ("online=excluded.online, couch=excluded.couch, lan=excluded.lan, features=excluded.features,\n"
+                     "                         source=excluded.source, ") if self.coopt_ok else ""
         with db.write_lock(), self.conn:
             for gid in ids:
                 c = self.conn.execute("SELECT * FROM catalog WHERE oc_id=?", (gid,)).fetchone()
@@ -259,7 +275,7 @@ class Job:
                     "SELECT 1 FROM catalog_platform WHERE oc_id=? AND oc_coop=1", (gid,)).fetchone()
                 source = "both" if (in_oc and co) else ("opencritic" if in_oc else "co-optimus")
                 self.conn.execute(
-                    """INSERT INTO games(id, slug, name, norm, score, release_date, genres, image, online, couch, lan,
+                    f"""INSERT INTO games(id, slug, name, norm, score, release_date, genres, image, online, couch, lan,
                                          features, source, updated_at)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, name=excluded.name, norm=excluded.norm,
@@ -268,8 +284,7 @@ class Job:
                          genres=CASE WHEN excluded.genres<>'' AND (games.genres IS NULL OR games.genres='')
                                      THEN excluded.genres ELSE games.genres END,
                          image=COALESCE(games.image, excluded.image),
-                         online=excluded.online, couch=excluded.couch, lan=excluded.lan, features=excluded.features,
-                         source=excluded.source, updated_at=excluded.updated_at""",
+                         {coopt_set}updated_at=excluded.updated_at""",
                     (gid, c["slug"], c["name"], c["norm"], c["score"], c["release_date"], c["genres"] or "",
                      c["image"], online, couch, lan, json.dumps(feats), source, ts),
                 )

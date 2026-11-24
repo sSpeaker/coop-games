@@ -135,3 +135,27 @@ def test_api():
         assert g["coop"][0]["online"] == 4 and g["trailers"][0]["id"] == "0TlySOphMuo"
         assert c.get("/api/status").json()["played"] == 1
         assert c.get("/").status_code == 200 and c.get("/static/app.js").status_code == 200
+
+
+class _BlockedFetcher:
+    """Fetcher stand-in whose every request gets the 403 Co-optimus returns from Cloudflare."""
+
+    def get(self, url, delay, params=None, accept_404=False):
+        import httpx
+        req = httpx.Request("GET", url)
+        raise httpx.HTTPStatusError("403 Forbidden", request=req, response=httpx.Response(403, request=req))
+
+
+def test_cooptimus_blocked_keeps_player_counts():
+    conn = db.connect()
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO catalog(oc_id, slug, name, norm, score, release_date, genres) "
+                     "VALUES(1, 'a', 'Alpha Co-op', 'alpha co op', 91, '2020-05-01', 'Action')")
+        conn.execute("INSERT OR REPLACE INTO catalog_platform(oc_id, platform, oc_coop) VALUES(1, 'PC', 1)")
+    job = updater.Job(conn, _BlockedFetcher(), False)
+    job.crawl_cooptimus()  # must not raise
+    assert job.coopt_ok is False and job.stats["coopt_error"].startswith("403 ")
+    job.build_games()
+    row = conn.execute("SELECT online, features, score FROM games WHERE id=1").fetchone()
+    assert row["online"] == 4 and "Split-Screen" in row["features"] and row["score"] == 91
+    conn.close()
