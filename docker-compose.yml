@@ -1,0 +1,32 @@
+name: coop-games
+
+services:
+  coop-games:
+    build: .
+    image: coop-games:latest
+    container_name: coop-games
+    restart: unless-stopped
+    ports:
+      - "8095:8080"
+    volumes:
+      - /DATA/AppData/coop-games:/data
+    environment:
+      TZ: Europe/Madrid
+      # Hours between automatic database updates (0 = off)
+      UPDATE_INTERVAL_HOURS: "168"
+      # Import automatically when the database is empty
+      UPDATE_ON_EMPTY_START: "1"
+      LOG_LEVEL: INFO
+    x-casaos:
+      architectures:
+        - amd64
+        - arm64
+      main: coop-games
+      category: Entertainment
+      title:
+        en_us: Co-op Games
+      description:
+        en_us: Co-op game catalog built from OpenCritic, Co-optimus and PEGI.
+      port_map: "8095"
+      scheme: http
+      index: /

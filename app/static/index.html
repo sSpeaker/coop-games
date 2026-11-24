@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Co-op Games</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5b041' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='3'/%3E%3Ccircle cx='16' cy='8' r='3'/%3E%3Cpath d='M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6M14.5 14.2A6 6 0 0 1 22 20'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <a class="logo" href="#/">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f5b041" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14.5 14.2A6 6 0 0 1 22 20"/></svg>
+      <span>Co-op Games</span>
+    </a>
+    <form class="search" id="searchForm" role="search">
+      <label class="search-box">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search co-op games…" aria-label="Search games" autocomplete="off">
+      </label>
+      <a class="btn" id="filtersBtn" href="#/search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+        Filters
+      </a>
+    </form>
+    <nav class="top-links">
+      <a href="#/search?played=only" id="playedLink">Played: <b id="playedCount">0</b></a>
+      <a href="#/status" id="statusLink" title="Database status"><span id="statusDot" class="dot"></span>Data</a>
+    </nav>
+  </div>
+</header>
+<main id="app" class="wrap"></main>
+<script src="/static/app.js"></script>
+</body>
+</html>
