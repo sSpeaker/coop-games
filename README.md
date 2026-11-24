@@ -4,7 +4,7 @@ Self-hosted catalog of co-op games for PC, PS4, PS5, Switch and Switch 2.
 
 - Data sources: OpenCritic (co-op tag, score, genres, covers, trailers), Co-optimus (online / couch / LAN player counts per platform), pegi.info (age rating), Steam (genre fallback).
 - Storage: SQLite in `/data/coop.db`.
-- "Played" and "Want to play" marks are stored in the same database and shared by everyone who opens the site. Marking a game played takes it off the want-to-play list.
+- "Played", "Want to play" and "Not interested" marks are stored in the same database and shared by everyone who opens the site. Marking a game played or not interested takes it off the want-to-play list; "Not interested" games are hidden from every list and genre count unless the filter asks for them.
 
 ## Run on CasaOS
 

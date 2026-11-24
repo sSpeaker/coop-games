@@ -135,8 +135,8 @@ def test_api():
         assert g["coop"][0]["online"] == 4 and g["trailers"][0]["id"] == "0TlySOphMuo"
         assert c.get("/api/status").json()["played"] == 1
         # want to play: own list, filters, and marking a game played takes it off the list
-        assert c.put("/api/want/1").json() == {"want": True}
-        assert c.put("/api/want/3").json() == {"want": True}
+        assert c.put("/api/want/1").json() == {"want": True, "skip": False}
+        assert c.put("/api/want/3").json() == {"want": True, "skip": False}
         assert c.put("/api/want/999").status_code == 404
         assert names(c.get("/api/games?only_want=true")) == ["Alpha Co-op", "Gamma Party"]
         assert names(c.get("/api/games?hide_want=true")) == ["Beta Couch"]
@@ -146,6 +146,22 @@ def test_api():
         assert c.delete("/api/want/1").json() == {"want": False}
         st = c.get("/api/status").json()
         assert (st["played"], st["want"]) == (2, 0)
+        # not interested: gone from lists and genre counts unless asked for; excludes want
+        assert c.put("/api/want/1").json()["want"] is True
+        assert c.put("/api/skip/1").json() == {"skip": True, "want": False}
+        assert c.put("/api/skip/999").status_code == 404
+        assert names(c.get("/api/games?sort=score&dir=desc")) == ["Beta Couch", "Gamma Party"]
+        assert names(c.get("/api/games?genres=RPG")) == []
+        assert names(c.get("/api/games?only_skipped=true")) == ["Alpha Co-op"]
+        assert len(c.get("/api/games?show_skipped=true").json()["items"]) == 3
+        assert names(c.get("/api/games?only_want=true")) == []
+        assert c.get("/api/games/1").json()["skip"] is True
+        m = c.get("/api/meta").json()
+        assert {g["name"]: g["count"] for g in m["genres"]} == {"Action": 1, "Platformer": 1}
+        assert c.get("/api/status").json()["skip"] == 1
+        assert c.put("/api/want/1").json() == {"want": True, "skip": False}
+        assert names(c.get("/api/games?only_skipped=true")) == []
+        assert c.put("/api/skip/1").json()["skip"] is True and c.delete("/api/skip/1").json() == {"skip": False}
         assert c.get("/").status_code == 200 and c.get("/static/app.js").status_code == 200
 
 

@@ -90,6 +90,12 @@ CREATE TABLE IF NOT EXISTS want (
     added_at TEXT NOT NULL
 );
 
+-- "Not interested": hidden from every list unless asked for
+CREATE TABLE IF NOT EXISTS skip (
+    game_id  INTEGER PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS overrides (
     game_id INTEGER NOT NULL,
     field   TEXT NOT NULL,

@@ -1,7 +1,7 @@
 :root {
   --bg: #0f1115; --panel: #181b22; --panel2: #14171d; --line: #262a33; --line2: #2c313c;
   --text: #e8eaef; --muted: #a3a9b6; --accent: #f5b041; --accent-ink: #0f1115;
-  --good: #5fd38a; --mid: #f5c26b; --bad: #ff9b7a; --played: #7ee2a2; --want: #8fb8ff;
+  --good: #5fd38a; --mid: #f5c26b; --bad: #ff9b7a; --played: #7ee2a2; --want: #8fb8ff; --skip: #9aa0ad;
   --head: 'Space Grotesk', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -110,6 +110,14 @@ select.sel { height: 38px; border-radius: 10px; border: 1px solid var(--line2); 
 .card .actions .play-btn { font-size: 13px; gap: 6px; }
 .want-btn[aria-pressed="true"] { background: #1f2a3f; border-color: #34507a; color: var(--want); }
 .badge-want { background: #1f2a3f; color: var(--want); }
+.badge-skip { background: #2a2d35; color: var(--skip); }
+.skip-btn[aria-pressed="true"] { background: #2a2d35; border-color: #4a4f5c; color: var(--skip); }
+.card .actions { grid-template-columns: 1fr 1fr 42px; }
+.card .skip-btn { padding: 0; }
+.card .skip-btn .lbl { display: none; }
+.side .skip-btn { grid-column: 1 / -1; }
+.card.skipped .cover img { filter: grayscale(1) brightness(.6); }
+.card.leaving { opacity: 0; transform: scale(.97); transition: opacity .25s, transform .25s; }
 
 /* game page */
 .game-hero { position: relative; border-radius: 18px; overflow: hidden; margin: 8px 0 24px; min-height: 220px; display: flex; align-items: flex-end; background: var(--panel); border: 1px solid var(--line); }

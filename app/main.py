@@ -66,7 +66,7 @@ def index():
     return FileResponse(os.path.join(STATIC, "index.html"))
 
 
-def _game_dict(r, played, want=frozenset()):
+def _game_dict(r, played, want=frozenset(), skip=frozenset()):
     return {
         "id": r["id"],
         "name": r["name"],
@@ -82,6 +82,7 @@ def _game_dict(r, played, want=frozenset()):
         "features": json.loads(r["features"] or "[]"),
         "played": r["id"] in played,
         "want": r["id"] in want,
+        "skip": r["id"] in skip,
     }
 
 
@@ -107,11 +108,13 @@ def meta():
         ).fetchone()
         genres = []
         for r in conn.execute(
-            "SELECT genre, COUNT(*) AS n FROM game_genre GROUP BY genre ORDER BY genre='Other', genre"
+            """SELECT genre, COUNT(*) AS n FROM game_genre WHERE game_id NOT IN (SELECT game_id FROM skip)
+               GROUP BY genre ORDER BY genre='Other', genre"""
         ).fetchall():
             imgs = [x[0] for x in conn.execute(
                 """SELECT COALESCE(g.banner, g.image) FROM games g JOIN game_genre gg ON gg.game_id=g.id
                    WHERE gg.genre=? AND COALESCE(g.banner, g.image) IS NOT NULL
+                     AND g.id NOT IN (SELECT game_id FROM skip)
                    ORDER BY g.score IS NULL, g.score DESC LIMIT 4""", (r["genre"],))]
             genres.append({"name": r["genre"], "count": r["n"], "images": imgs})
         return {
@@ -140,6 +143,8 @@ def games(
     only_played: bool = False,
     hide_want: bool = False,
     only_want: bool = False,
+    show_skipped: bool = False,
+    only_skipped: bool = False,
     sort: str = Query("score", pattern="^(score|name|date)$"),
     dir: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(60, ge=1, le=500),
@@ -179,6 +184,10 @@ def games(
         where.append("g.id NOT IN (SELECT game_id FROM want)")
     if only_want:
         where.append("g.id IN (SELECT game_id FROM want)")
+    if only_skipped:
+        where.append("g.id IN (SELECT game_id FROM skip)")
+    elif not show_skipped:
+        where.append("g.id NOT IN (SELECT game_id FROM skip)")
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     d = "DESC" if dir == "desc" else "ASC"
     order = {
@@ -192,7 +201,8 @@ def games(
         rows = conn.execute(f"{BASE_SELECT}{wsql} ORDER BY {order} LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
         played = {r[0] for r in conn.execute("SELECT game_id FROM played")}
         want = {r[0] for r in conn.execute("SELECT game_id FROM want")}
-        return {"total": total, "items": [_game_dict(r, played, want) for r in rows]}
+        skip = {r[0] for r in conn.execute("SELECT game_id FROM skip")}
+        return {"total": total, "items": [_game_dict(r, played, want, skip) for r in rows]}
     finally:
         conn.close()
 
@@ -206,7 +216,8 @@ def game(gid: int):
             raise HTTPException(404)
         played = {x[0] for x in conn.execute("SELECT game_id FROM played WHERE game_id=?", (gid,))}
         want = {x[0] for x in conn.execute("SELECT game_id FROM want WHERE game_id=?", (gid,))}
-        out = _game_dict(r, played, want)
+        skip = {x[0] for x in conn.execute("SELECT game_id FROM skip WHERE game_id=?", (gid,))}
+        out = _game_dict(r, played, want, skip)
         out.update({
             "description": r["description"],
             "banner": r["banner"] or r["image"],
@@ -260,7 +271,8 @@ def mark_want(gid: int):
             if not conn.execute("SELECT 1 FROM games WHERE id=?", (gid,)).fetchone():
                 raise HTTPException(404)
             conn.execute("INSERT OR IGNORE INTO want(game_id, added_at) VALUES(?, ?)", (gid, updater.now_iso()))
-        return {"want": True}
+            conn.execute("DELETE FROM skip WHERE game_id=?", (gid,))  # wanting a game undoes "not interested"
+        return {"want": True, "skip": False}
     finally:
         conn.close()
 
@@ -276,6 +288,31 @@ def unmark_want(gid: int):
         conn.close()
 
 
+@app.put("/api/skip/{gid}")
+def mark_skip(gid: int):
+    conn = db.connect()
+    try:
+        with db.write_lock(), conn:
+            if not conn.execute("SELECT 1 FROM games WHERE id=?", (gid,)).fetchone():
+                raise HTTPException(404)
+            conn.execute("INSERT OR IGNORE INTO skip(game_id, added_at) VALUES(?, ?)", (gid, updater.now_iso()))
+            conn.execute("DELETE FROM want WHERE game_id=?", (gid,))  # not interested leaves the want list
+        return {"skip": True, "want": False}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/skip/{gid}")
+def unmark_skip(gid: int):
+    conn = db.connect()
+    try:
+        with db.write_lock(), conn:
+            conn.execute("DELETE FROM skip WHERE game_id=?", (gid,))
+        return {"skip": False}
+    finally:
+        conn.close()
+
+
 @app.get("/api/status")
 def status():
     conn = db.connect()
@@ -285,6 +322,7 @@ def status():
             "games": conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
             "played": conn.execute("SELECT COUNT(*) FROM played").fetchone()[0],
             "want": conn.execute("SELECT COUNT(*) FROM want").fetchone()[0],
+            "skip": conn.execute("SELECT COUNT(*) FROM skip").fetchone()[0],
             "running": updater.is_running(),
             "step": m.get("update_step"),
             "done": m.get("update_done"),
