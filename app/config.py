@@ -30,6 +30,9 @@ REFRESH_EVERY_DAYS = int(os.environ.get("REFRESH_EVERY_DAYS", "7"))
 # Stop the incremental OpenCritic catalog crawl after this many pages without new games
 CATALOG_STOP_AFTER = int(os.environ.get("CATALOG_STOP_AFTER", "3"))
 
+# curl_cffi browser fingerprint to impersonate ("" = plain httpx)
+IMPERSONATE = os.environ.get("IMPERSONATE", "chrome")
+
 USER_AGENT = os.environ.get(
     "USER_AGENT",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36",

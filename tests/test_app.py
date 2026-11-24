@@ -95,13 +95,13 @@ def seed():
         ]
         for gid, slug, name, score, date, genres, pegi, on, co, lan in games:
             conn.execute(
-                """INSERT INTO games(id, slug, name, norm, score, release_date, genres, pegi, online, couch, lan, features, trailers)
+                """INSERT OR REPLACE INTO games(id, slug, name, norm, score, release_date, genres, pegi, online, couch, lan, features, trailers)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (gid, slug, name, norm(name), score, date, genres, pegi, on, co, lan, json.dumps(["Split-Screen"]),
                  json.dumps([{"id": "0TlySOphMuo", "name": "T"}])))
-            conn.execute("INSERT INTO game_platform VALUES(?, 'PC')", (gid,))
-        conn.execute("INSERT INTO game_platform VALUES(2, 'Switch')")
-        conn.execute("""INSERT INTO coopt(coopt_id, platform, title, norm, genre, online, couch, lan, features, release, oc_id)
+            conn.execute("INSERT OR IGNORE INTO game_platform VALUES(?, 'PC')", (gid,))
+        conn.execute("INSERT OR IGNORE INTO game_platform VALUES(2, 'Switch')")
+        conn.execute("""INSERT OR REPLACE INTO coopt(coopt_id, platform, title, norm, genre, online, couch, lan, features, release, oc_id)
                         VALUES(10, 'PC', 'Alpha Co-op', 'alpha co op', 'Action', 4, 0, 0, '[]', '2020-05-01', 1)""")
     job = updater.Job(conn, None, False)
     job.rebuild_genre_index()
@@ -137,10 +137,42 @@ def test_api():
         assert c.get("/").status_code == 200 and c.get("/static/app.js").status_code == 200
 
 
+def test_import_cooptimus():
+    import time
+    from fastapi.testclient import TestClient
+    from app.main import app
+    seed()
+    conn = db.connect()
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO catalog(oc_id, slug, name, norm, release_date) VALUES(2, 'b', 'Beta Couch', 'beta couch', '2018-01-01')")
+        conn.execute("INSERT OR IGNORE INTO catalog_platform(oc_id, platform, oc_coop) VALUES(2, 'Switch', 1)")
+    conn.close()
+    rows = [{"platform": "Switch", "coopt_id": 77, "title": "Beta Couch", "genre": "Platformer", "online": 0,
+             "couch": 4, "lan": 0, "features": ["Couch", "Split-Screen"], "release": "2018-01-02"}]
+    with TestClient(app) as c:
+        assert c.post("/api/import/cooptimus", json=rows).json() == {"started": True, "rows": 1}
+        for _ in range(50):
+            if not c.get("/api/status").json()["running"]:
+                break
+            time.sleep(0.1)
+        g = c.get("/api/games/2").json()
+        assert g["coop"][0]["couch"] == 4 and "Split-Screen" in g["features"]
+        assert c.post("/api/import/cooptimus", json=[]).status_code == 400
+
+
+def test_fetcher_client():
+    f = scrapers.Fetcher()
+    assert f.kind == "curl_cffi"
+    f.close()
+
+
 class _BlockedFetcher:
     """Fetcher stand-in whose every request gets the 403 Co-optimus returns from Cloudflare."""
 
-    def get(self, url, delay, params=None, accept_404=False):
+    def warm_up(self, url, delay):
+        pass
+
+    def get(self, url, delay, params=None, accept_404=False, headers=None):
         import httpx
         req = httpx.Request("GET", url)
         raise httpx.HTTPStatusError("403 Forbidden", request=req, response=httpx.Response(403, request=req))

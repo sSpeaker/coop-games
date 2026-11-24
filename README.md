@@ -69,8 +69,21 @@ If the container restarts mid-update, the job resumes on the next start.
 | `UPDATE_ON_EMPTY_START` | `1` | Run the first update right after the first start |
 | `DELAY_OPENCRITIC` / `DELAY_COOPTIMUS` / `DELAY_PEGI` / `DELAY_STEAM` | `0.6` / `0.6` / `1.0` / `1.0` | Seconds between requests per site |
 | `BACKOFF_429` | `60` | Pause after HTTP 429 |
+| `IMPERSONATE` | `chrome` | Browser TLS fingerprint used by curl_cffi; empty = plain httpx |
 | `REFRESH_RECENT_DAYS` / `REFRESH_EVERY_DAYS` | `120` / `7` | Which game pages a quick update re-fetches |
 | `CATALOG_STOP_AFTER` | `3` | Incremental catalog crawl stops after this many pages with no new games |
+
+## Co-optimus blocked (HTTP 403 from Cloudflare)
+
+The crawler uses curl_cffi with a Chrome fingerprint, loads games.php first for cookies and sends the same headers as the site's own XHR. If Cloudflare still answers 403:
+
+- The rest of the update still runs, and the previous Co-optimus data is kept. The Data page shows `partial: crawl_cooptimus: …`.
+- Fallback: **Data → Import Co-optimus data from your browser**.
+  1. Copy the script.
+  2. Run it in the browser console on co-optimus.com/games.php (about 10 min).
+  3. Upload the downloaded `coopt.json`.
+
+  The import rematches titles and rebuilds the game list without any network requests. New games found this way get covers and PEGI on the next update.
 
 ## Manual fixes
 

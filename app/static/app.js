@@ -356,9 +356,14 @@ function iframe(id) {
 
 // ---------------------------------------------------------------- status page
 async function renderStatus(token) {
+  let prevKey = null;
   const draw = async () => {
     const st = await api('/api/status');
     if (token !== renderToken) return false;
+    // Re-render only on change so a chosen import file is not wiped by the poll.
+    const key = JSON.stringify(st);
+    if (key === prevKey) return st.running;
+    prevKey = key;
     const pct = st.total ? Math.round((+st.done / +st.total) * 100) : null;
     app.innerHTML = `
       <a class="back" href="#/">${ICON.back} Home</a>
@@ -378,7 +383,37 @@ async function renderStatus(token) {
              <p class="muted" style="margin:0 0 12px">Quick update: new games, co-op data, scores of recent games, missing PEGI ratings. Full refresh re-crawls the whole OpenCritic catalog and every game page (hours).</p>
              <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="btn primary" id="updBtn">Update now</button><button type="button" class="btn" id="fullBtn">Full refresh</button></div>`}
       </div>
-      ${Object.keys(st.last_stats || {}).length ? `<div class="panel" style="margin-top:14px"><h2>Last run</h2><pre class="stats">${esc(JSON.stringify(st.last_stats, null, 1).replace(/[{}"]/g, '').trim())}</pre></div>` : ''}`;
+      ${Object.keys(st.last_stats || {}).length ? `<div class="panel" style="margin-top:14px"><h2>Last run</h2><pre class="stats">${esc(JSON.stringify(st.last_stats, null, 1).replace(/[{}"]/g, '').trim())}</pre></div>` : ''}
+      <div class="panel" style="margin-top:14px">
+        <h2>Import Co-optimus data from your browser</h2>
+        <p class="muted" style="margin:0 0 10px">Use this when Co-optimus blocks the server (HTTP 403 from Cloudflare). It takes about 10 minutes.</p>
+        <ol class="muted" style="margin:0 0 12px;padding-left:20px">
+          <li>Open <a href="https://www.co-optimus.com/games.php" target="_blank" rel="noopener">co-optimus.com/games.php</a> in a normal browser tab.</li>
+          <li>Open the developer console (Cmd+Option+J in Chrome), paste the script, press Enter. The console shows progress; when it finishes, the browser downloads <b>coopt.json</b>.</li>
+          <li>Choose that file below and press Import.</li>
+        </ol>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <button type="button" class="btn" id="copySnippet">Copy script</button>
+          <input type="file" id="cooptFile" accept="application/json,.json" aria-label="coopt.json file">
+          <button type="button" class="btn primary" id="importBtn" ${st.running ? 'disabled' : ''}>Import</button>
+          <span class="muted" id="importMsg"></span>
+        </div>
+        <pre class="stats" style="max-height:160px;overflow:auto;background:#0f1115;padding:10px;border-radius:8px;border:1px solid var(--line)">${esc(COOPT_SNIPPET)}</pre>
+      </div>`;
+    $('#copySnippet').onclick = async () => {
+      try { await navigator.clipboard.writeText(COOPT_SNIPPET); $('#copySnippet').textContent = 'Copied'; } catch (e) { $('#copySnippet').textContent = 'Select the text and copy'; }
+    };
+    $('#importBtn').onclick = async () => {
+      const file = $('#cooptFile').files[0];
+      if (!file) { $('#importMsg').textContent = 'Choose coopt.json first'; return; }
+      $('#importMsg').textContent = 'Uploading…';
+      try {
+        const r = await fetch('/api/import/cooptimus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: await file.text() });
+        const j = await r.json();
+        $('#importMsg').textContent = r.ok ? `Importing ${j.rows.toLocaleString('en')} rows…` : (j.detail || 'Import failed');
+        if (r.ok) setTimeout(draw, 1500);
+      } catch (e) { $('#importMsg').textContent = 'Import failed: ' + e.message; }
+    };
     if ($('#updBtn')) $('#updBtn').onclick = async () => { await api('/api/update', { method: 'POST' }); draw(); };
     if ($('#fullBtn')) $('#fullBtn').onclick = async () => { if (confirmFull()) { await api('/api/update?full=true', { method: 'POST' }); draw(); } };
     if ($('#stopBtn')) $('#stopBtn').onclick = async () => { await api('/api/update/stop', { method: 'POST' }); draw(); };
@@ -390,6 +425,53 @@ async function renderStatus(token) {
   };
   loop();
 }
+// Runs in the browser console on co-optimus.com and downloads coopt.json for /api/import/cooptimus
+const COOPT_SNIPPET = `(async () => {
+  const SYSTEMS = { 'PC': 4, 'PS4': 22, 'PS5': 30, 'Switch': 28, 'Switch 2': 34 };
+  const num = (t) => (/^\\d+$/.test(t.trim()) ? +t.trim() : 0);
+  const out = [];
+  for (const [platform, system] of Object.entries(SYSTEMS)) {
+    let page = 1, last = 1;
+    while (page <= last) {
+      const html = await (await fetch('/ajax/ajax_games.php?system=' + system + '&page=' + page)).text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc.querySelectorAll('a[onclick]').forEach((a) => {
+        const m = (a.getAttribute('onclick') || '').match(/setPage\\('(\\d+)'\\)/);
+        if (m) last = Math.max(last, +m[1]);
+      });
+      const rows = [...doc.querySelectorAll('tr.result_row')];
+      if (!rows.length) break;
+      for (const tr of rows) {
+        const td = [...tr.children];
+        if (td.length < 7 || !/^\\d+$/.test(tr.id)) continue;
+        const features = [];
+        td[4].querySelectorAll('.features-icon').forEach((a) => {
+          const t = (a.title || '').trim();
+          if (/Players? in Co-Op/.test(t)) return;
+          const f = t.replace(/^Supports\\s+/, '').replace(/\\s+Co-Op$/, '');
+          if (f) features.push(f);
+        });
+        const d = td[6].textContent.trim().match(/(\\d{2})\\/(\\d{2})\\/(\\d{4})/);
+        out.push({
+          platform, coopt_id: +tr.id,
+          title: (td[0].querySelector('strong') || {}).textContent?.trim(),
+          genre: (td[0].querySelector('label') || {}).textContent?.trim() || null,
+          online: num(td[1].textContent), couch: num(td[2].textContent), lan: num(td[3].textContent),
+          features, release: d ? d[3] + '-' + d[1] + '-' + d[2] : null,
+        });
+      }
+      console.log(platform, 'page', page, 'of', last, '-', out.length, 'rows');
+      page++;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out)], { type: 'application/json' }));
+  a.download = 'coopt.json';
+  a.click();
+  console.log('Done:', out.length, 'rows saved to coopt.json');
+})();`;
+
 function confirmFull() {
   return window.confirm('Full refresh takes several hours. Start it?');
 }

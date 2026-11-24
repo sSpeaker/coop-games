@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -266,6 +266,22 @@ def status():
 @app.post("/api/update")
 def start_update(full: bool = False):
     return {"started": updater.start_background(full=full)}
+
+
+@app.post("/api/import/cooptimus")
+async def import_cooptimus(request: Request):
+    """Accepts the coopt.json file produced by the browser snippet on the Data page."""
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(400, "Body is not JSON")
+    if isinstance(payload, dict):
+        payload = payload.get("rows", [])
+    if not isinstance(payload, list) or not payload:
+        raise HTTPException(400, "Expected a non-empty JSON array")
+    if not updater.start_import(payload):
+        raise HTTPException(409, "An update is running; try again when it finishes")
+    return {"started": True, "rows": len(payload)}
 
 
 @app.post("/api/update/stop")

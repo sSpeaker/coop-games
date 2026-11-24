@@ -4,8 +4,6 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 
-import httpx
-
 from . import config, db, scrapers
 from .text import norm, strip_edition, year_of
 
@@ -36,6 +34,42 @@ def start_background(full=False):
     return True
 
 
+def start_import(payload):
+    """Import Co-optimus rows exported from a browser, then rematch and rebuild games (no network)."""
+    if _job_lock.locked():
+        return False
+    t = threading.Thread(target=_run_import, args=(payload,), daemon=True, name="coopt-import")
+    t.start()
+    return True
+
+
+def _run_import(payload):
+    if not _job_lock.acquire(blocking=False):
+        return
+    conn = db.connect()
+    job = Job(conn, None, False)
+    try:
+        job.status("running", "Starting")
+        by_platform = {}
+        for x in payload:
+            if x.get("platform") in config.PLATFORMS and str(x.get("coopt_id", "")).isdigit() and x.get("title"):
+                x["coopt_id"] = int(x["coopt_id"])
+                by_platform.setdefault(x["platform"], []).append(x)
+        for platform, rows in by_platform.items():
+            job.status("running", f"Importing Co-optimus · {platform}")
+            job.store_coopt(platform, rows)
+        job.match_cooptimus()
+        job.build_games()
+        job.resolve_genres(steam=False)
+        job.finish("ok (Co-optimus import)")
+    except Exception as e:  # noqa: BLE001
+        log.exception("import failed")
+        job.finish("error: %s" % e)
+    finally:
+        conn.close()
+        _job_lock.release()
+
+
 def run(full=False):
     if not _job_lock.acquire(blocking=False):
         return False
@@ -45,14 +79,21 @@ def run(full=False):
     job = Job(conn, fetcher, full)
     try:
         job.status("running", "Starting")
-        job.crawl_opencritic()
-        job.crawl_cooptimus()
-        job.match_cooptimus()
-        job.build_games()
-        job.enrich_pages()
-        job.resolve_genres()
-        job.fetch_pegi()
-        job.finish("ok")
+        errors = []
+        # A failing source (e.g. a site blocking the crawler) must not stop the other steps.
+        for step in (job.crawl_opencritic, job.crawl_cooptimus, job.match_cooptimus, job.build_games,
+                     job.enrich_pages, job.resolve_genres, job.fetch_pegi):
+            try:
+                step()
+            except scrapers.StopRequested:
+                raise
+            except Exception as e:  # noqa: BLE001
+                log.exception("step %s failed", step.__name__)
+                errors.append(f"{step.__name__}: {e}")
+        if job.stats.get("coopt_error"):
+            errors.append("crawl_cooptimus: " + job.stats["coopt_error"])
+        job.stats["errors"] = errors
+        job.finish("ok" if not errors else "partial: " + "; ".join(errors)[:300])
     except scrapers.StopRequested:
         job.finish("stopped")
     except Exception as e:  # noqa: BLE001 - surface any failure in the UI
@@ -178,39 +219,50 @@ class Job:
     # ------------------------------------------------------------ Co-optimus
 
     def crawl_cooptimus(self):
+        self.f.warm_up(f"{scrapers.COOPT}/games.php", config.DELAY_COOPTIMUS)
+        failed = []
         for platform, (_, system) in config.PLATFORMS.items():
             rows, page, last = [], 1, 1
-            while page <= last:
-                self.status("running", f"Co-optimus · {platform}", page, last)
+            try:
+                while page <= last:
+                    self.status("running", f"Co-optimus · {platform}", page, last)
+                    r = self.f.get(scrapers.coopt_url(system, page), config.DELAY_COOPTIMUS,
+                                   headers=scrapers.COOPT_XHR_HEADERS)
+                    got, lp = scrapers.parse_coopt_page(r.text)
+                    last = max(last, lp)
+                    if not got:
+                        break
+                    rows += got
+                    page += 1
+            except scrapers.StopRequested:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # Co-optimus only adds player counts; don't let it block covers, trailers and PEGI.
+                # Keep the previous rows for this platform: a partial crawl would drop games.
+                code = (getattr(e, "status", None) or getattr(getattr(e, "response", None), "status_code", None)
+                        or type(e).__name__)
                 url = scrapers.coopt_url(system, page)
-                try:
-                    r = self.f.get(url, config.DELAY_COOPTIMUS)
-                except (httpx.HTTPError, RuntimeError) as e:
-                    # Co-optimus only adds player counts; don't let it block covers, trailers and PEGI.
-                    code = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else type(e).__name__
-                    log.warning("Co-optimus unavailable (%s at %s); skipping it, previous player counts are kept",
-                                code, url)
-                    self.coopt_ok = False
-                    self.stats["coopt_error"] = f"{code} {url}"
-                    return
-                got, lp = scrapers.parse_coopt_page(r.text)
-                last = max(last, lp)
-                if not got:
-                    break
-                rows += got
-                page += 1
-            if not rows:
+                log.warning("Co-optimus unavailable (%s at %s); skipping, previous player counts are kept", code, url)
+                self.coopt_ok = False
+                failed.append(f"{code} {url}")
                 continue
-            with db.write_lock(), self.conn:
-                self.conn.execute("DELETE FROM coopt WHERE platform=?", (platform,))
-                for x in rows:
-                    self.conn.execute(
-                        """INSERT OR REPLACE INTO coopt(coopt_id, platform, title, norm, genre, online, couch, lan, features, release)
-                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                        (x["coopt_id"], platform, x["title"], norm(x["title"]), x["genre"], x["online"], x["couch"],
-                         x["lan"], json.dumps(x["features"]), x["release"]),
-                    )
-            self.stats[f"coopt_{platform}"] = len(rows)
+            self.store_coopt(platform, rows)
+        if failed:
+            self.stats["coopt_error"] = "; ".join(failed)[:300] + " (use Data → Import Co-optimus data)"
+
+    def store_coopt(self, platform, rows):
+        if not rows:
+            return
+        with db.write_lock(), self.conn:
+            self.conn.execute("DELETE FROM coopt WHERE platform=?", (platform,))
+            for x in rows:
+                self.conn.execute(
+                    """INSERT OR REPLACE INTO coopt(coopt_id, platform, title, norm, genre, online, couch, lan, features, release)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (x["coopt_id"], platform, x["title"], norm(x["title"]), x.get("genre"), x.get("online") or 0,
+                     x.get("couch") or 0, x.get("lan") or 0, json.dumps(x.get("features") or []), x.get("release")),
+                )
+        self.stats[f"coopt_{platform}"] = len(rows)
 
     def match_cooptimus(self):
         self.status("running", "Matching Co-optimus to OpenCritic")
@@ -328,7 +380,7 @@ class Job:
                 )
         self.stats["pages_fetched"] = len(rows)
 
-    def resolve_genres(self):
+    def resolve_genres(self, steam=True):
         self.status("running", "Resolving genres")
         missing = self.conn.execute(
             "SELECT id, name, genre_checked_at FROM games WHERE genres IS NULL OR genres=''").fetchall()
@@ -340,6 +392,8 @@ class Job:
                 for x in scrapers.coopt_genres(lab):
                     if x not in genres:
                         genres.append(x)
+            if not genres and not steam:
+                continue
             if not genres and not g["genre_checked_at"]:
                 self.status("running", "Steam genre lookup", i, len(missing))
                 r = self.f.get(f"{scrapers.STEAM}/api/storesearch/", config.DELAY_STEAM,

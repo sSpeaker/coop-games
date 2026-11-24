@@ -19,20 +19,44 @@ PEGI = "https://pegi.info"
 STEAM = "https://store.steampowered.com"
 
 
+try:
+    from curl_cffi import requests as cffi_requests
+except ImportError:  # pragma: no cover - optional dependency
+    cffi_requests = None
+
+
+class HTTPStatusError(Exception):
+    def __init__(self, url, status, body=""):
+        super().__init__(f"GET {url} -> HTTP {status}: {body[:120]!r}")
+        self.status = status
+
+
 class Fetcher:
-    """Polite HTTP client: per-host delay, retries, 429 backoff."""
+    """Polite HTTP client: per-host delay, retries, 429 backoff.
+
+    Uses curl_cffi with a Chrome TLS/HTTP2 fingerprint when available (Cloudflare on co-optimus.com
+    rejects plain Python clients with 403), otherwise httpx.
+    """
 
     def __init__(self, stop_flag=None):
-        self.client = httpx.Client(
-            headers={"User-Agent": config.USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
-            timeout=30,
-            follow_redirects=True,
-        )
+        self.headers = {
+            "User-Agent": config.USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        if cffi_requests and config.IMPERSONATE:
+            self.session = cffi_requests.Session(impersonate=config.IMPERSONATE, timeout=30)
+            self.kind = "curl_cffi"
+        else:
+            self.session = httpx.Client(headers=self.headers, timeout=30, follow_redirects=True)
+            self.kind = "httpx"
         self.last = {}
+        self.warmed = set()
         self.stop_flag = stop_flag or (lambda: False)
+        log.info("HTTP client: %s", self.kind)
 
     def close(self):
-        self.client.close()
+        self.session.close()
 
     def _wait(self, host, delay):
         elapsed = time.monotonic() - self.last.get(host, 0)
@@ -40,18 +64,39 @@ class Fetcher:
             time.sleep(delay - elapsed)
         self.last[host] = time.monotonic()
 
-    def get(self, url, delay, params=None, accept_404=False):
+    def _request(self, url, params, headers):
+        if self.kind == "curl_cffi":
+            # Let curl_cffi send its own Chrome User-Agent so headers match the TLS fingerprint.
+            h = {k: v for k, v in headers.items() if k != "User-Agent"}
+            return self.session.get(url, params=params, headers=h, allow_redirects=True)
+        return self.session.get(url, params=params, headers=headers)
+
+    def warm_up(self, url, delay):
+        """Load a normal page first so the site sets its cookies before XHR-style requests."""
         host = httpx.URL(url).host
+        if host in self.warmed:
+            return
+        self.warmed.add(host)
+        try:
+            self.get(url, delay)
+        except Exception as e:  # noqa: BLE001
+            log.warning("warm-up %s failed: %s", url, e)
+
+    def get(self, url, delay, params=None, accept_404=False, headers=None):
+        host = httpx.URL(url).host
+        h = dict(self.headers, **(headers or {}))
+        last_status = None
         for attempt in range(6):
             if self.stop_flag():
                 raise StopRequested()
             self._wait(host, delay)
             try:
-                r = self.client.get(url, params=params)
-            except httpx.HTTPError as e:
+                r = self._request(url, params, h)
+            except Exception as e:  # noqa: BLE001 - network errors from either client
                 log.warning("GET %s failed: %s", url, e)
                 time.sleep(5 * (attempt + 1))
                 continue
+            last_status = r.status_code
             if r.status_code == 429 or r.status_code >= 500:
                 wait = config.BACKOFF_429 if r.status_code == 429 else 10 * (attempt + 1)
                 log.warning("GET %s -> %s, sleeping %ss", url, r.status_code, wait)
@@ -59,9 +104,14 @@ class Fetcher:
                 continue
             if r.status_code == 404 and accept_404:
                 return None
-            r.raise_for_status()
+            if r.status_code == 403 and attempt < 2:
+                log.warning("GET %s -> 403, retrying", url)
+                time.sleep(15)
+                continue
+            if r.status_code >= 400:
+                raise HTTPStatusError(url, r.status_code, r.text or "")
             return r
-        raise RuntimeError(f"GET {url} failed after retries")
+        raise HTTPStatusError(url, last_status or 0, "failed after retries")
 
 
 class StopRequested(Exception):
@@ -154,6 +204,13 @@ def parse_oc_game(html):
 
 def coopt_url(system_id, page):
     return f"{COOPT}/ajax/ajax_games.php?system={system_id}&page={page}"
+
+
+COOPT_XHR_HEADERS = {
+    "Referer": f"{COOPT}/games.php",
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "*/*",
+}
 
 
 def _int(s):
