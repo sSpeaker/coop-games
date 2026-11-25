@@ -133,6 +133,8 @@ def test_api():
         assert names(c.get("/api/games?only_played=true")) == ["Beta Couch"]
         g = c.get("/api/games/1").json()
         assert g["coop"][0]["online"] == 4 and g["trailers"][0]["id"] == "0TlySOphMuo"
+        stores = {x["platform"]: x for x in c.get("/api/games/2").json()["stores"]}
+        assert stores["Switch"]["store"] == "Nintendo eShop" and stores["Switch"]["exact"] is False
         assert c.get("/api/status").json()["played"] == 1
         # want to play: own list, filters, and marking a game played takes it off the list
         assert c.put("/api/want/1").json() == {"want": True, "skip": False}
@@ -295,4 +297,72 @@ def test_fetch_metacritic_skips_odd_page():
     job.fetch_metacritic()  # must not raise
     assert conn.execute("SELECT mc_checked_at IS NOT NULL FROM games WHERE id=77").fetchone()[0] == 1
     assert conn.execute("SELECT metascore FROM games WHERE id=18192").fetchone()[0] == 91
+    conn.close()
+
+
+def test_store_links():
+    links = {x["platform"]: x for x in scrapers.store_links(
+        "It Takes Two", ["PC", "PS5", "Switch", "Xbox"], 1426210, None)}
+    assert set(links) == {"PC", "PS5", "Switch"}
+    assert links["PC"] == {"platform": "PC", "store": "Steam", "exact": True,
+                           "url": "https://store.steampowered.com/app/1426210/"}
+    assert links["PS5"]["url"] == "https://store.playstation.com/search/It%20Takes%20Two"
+    assert links["Switch"]["url"].endswith("?q=It%20Takes%20Two") and not links["Switch"]["exact"]
+    assert scrapers.store_links("X", ["PC"])[0]["url"] == "https://store.steampowered.com/search/?term=X"
+
+
+NINTENDO_JSON = json.dumps({"response": {"docs": [
+    {"title": "It Takes Two Friend's Pass", "url": "/en-gb/Games/x-1.html"},
+    {"title": "It Takes Two", "url": "/en-gb/Games/Nintendo-Switch-games/It-Takes-Two-2265759.html"},
+]}})
+
+
+def test_parse_nintendo_search():
+    assert scrapers.parse_nintendo_search(NINTENDO_JSON, "It Takes Two") == \
+        "https://www.nintendo.com/en-gb/Games/Nintendo-Switch-games/It-Takes-Two-2265759.html"
+    assert scrapers.parse_nintendo_search(NINTENDO_JSON, "Unravel Two") is None
+    assert scrapers.parse_nintendo_search("<html>", "It Takes Two") is None
+
+
+class _StoreFetcher:
+    def __init__(self):
+        self.urls = []
+
+    def get(self, url, delay, params=None, accept_404=False, headers=None):
+        self.urls.append(url)
+
+        class R:
+            pass
+        r = R()
+        if "storesearch" in url:
+            r.text = json.dumps({"items": [{"id": 4242, "name": params["term"]}]})
+        elif "nintendo" in url:
+            if params["q"] == "Odd Switch":
+                raise scrapers.HTTPStatusError(url, 400, "bad query")
+            r.text = json.dumps({"response": {"docs": [{"title": params["q"], "url": "/en-gb/Games/g.html"}]}})
+        return r
+
+
+def test_fetch_stores():
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE games SET steam_appid=NULL, eshop_url=NULL, stores_checked_at=NULL")
+        conn.execute("""INSERT OR REPLACE INTO games(id, slug, name, norm) VALUES(78, 'odd-switch', 'Odd Switch', 'odd switch')""")
+        conn.execute("INSERT OR IGNORE INTO game_platform(game_id, platform) VALUES(78, 'Switch')")
+    pc, sw = (set(x[0] for x in conn.execute("SELECT game_id FROM game_platform WHERE platform LIKE ?", (p,)))
+              for p in ("PC", "Switch%"))
+    f = _StoreFetcher()
+    job = updater.Job(conn, f, False)
+    job.fetch_stores()  # the 400 for game 78 must not stop the step
+    rows = {r["id"]: r for r in conn.execute("SELECT id, steam_appid, eshop_url, stores_checked_at FROM games")}
+    for gid in pc:
+        assert rows[gid]["steam_appid"] == 4242
+    for gid in sw - {78}:
+        assert rows[gid]["eshop_url"] == "https://www.nintendo.com/en-gb/Games/g.html"
+    assert rows[78]["eshop_url"] is None and rows[78]["stores_checked_at"]
+    assert job.stats["stores_checked"] == len(pc | sw)
+    # checked games are not looked up again on the next run
+    f.urls.clear()
+    updater.Job(conn, f, False).fetch_stores()
+    assert f.urls == []
     conn.close()

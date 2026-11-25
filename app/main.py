@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, seed, updater
+from . import config, db, scrapers, seed, updater
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("main")
@@ -227,6 +227,7 @@ def game(gid: int):
             "pegi_title": r["pegi_title"],
             "mc_url": r["mc_url"],
             "url": f"https://opencritic.com/game/{r['id']}/{r['slug']}",
+            "stores": scrapers.store_links(r["name"], out["platforms"], r["steam_appid"], r["eshop_url"]),
             "coop": [
                 {"platform": c["platform"], "online": c["online"], "couch": c["couch"], "lan": c["lan"],
                  "features": json.loads(c["features"] or "[]"),

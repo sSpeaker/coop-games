@@ -415,6 +415,50 @@ def parse_steam_search(text, name):
     return None
 
 
+# ---------------------------------------------------------------- store links
+
+NINTENDO = "https://www.nintendo.com"
+NINTENDO_SEARCH = "https://searching.nintendo-europe.com/en/select"
+PS_STORE = "https://store.playstation.com"  # no locale: the store picks the visitor's own
+
+
+def nintendo_search_params(name):
+    return {"q": name, "fq": "type:GAME", "rows": 10, "wt": "json", "fl": "title,url"}
+
+
+def parse_nintendo_search(text, name):
+    """eShop page URL of the search result whose title matches the game."""
+    try:
+        docs = json.loads(text)["response"]["docs"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    wanted = {norm(name), norm(strip_edition(name))}
+    for d in docs:
+        url = d.get("url") or ""
+        if url and norm(d.get("title") or "") in wanted:
+            return NINTENDO + url if url.startswith("/") else url
+    return None
+
+
+def store_links(name, platforms, steam_appid=None, eshop_url=None):
+    """One shop link per platform: the game page when known, otherwise a store search for the title."""
+    q = quote(name, safe="")
+    out = []
+    for p in platforms:
+        if p == "PC":
+            store, exact = "Steam", f"{STEAM}/app/{steam_appid}/" if steam_appid else None
+            search = f"{STEAM}/search/?term={q}"
+        elif p.startswith("PS"):
+            store, exact, search = "PlayStation Store", None, f"{PS_STORE}/search/{q}"
+        elif p.startswith("Switch"):
+            store, exact = "Nintendo eShop", eshop_url
+            search = f"{NINTENDO}/en-gb/Search/Search-299117.html?q={q}"
+        else:
+            continue
+        out.append({"platform": p, "store": store, "url": exact or search, "exact": bool(exact)})
+    return out
+
+
 def parse_steam_genres(text, appid):
     try:
         obj = json.loads(text).get(str(appid), {})

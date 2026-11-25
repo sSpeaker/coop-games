@@ -90,7 +90,8 @@ def run(full=False):
         errors = []
         # A failing source (e.g. a site blocking the crawler) must not stop the other steps.
         for step in (job.crawl_opencritic, job.crawl_cooptimus, job.match_cooptimus, job.build_games,
-                     job.enrich_pages, job.resolve_genres, job.fetch_metacritic, job.fetch_pegi):
+                     job.enrich_pages, job.resolve_genres, job.fetch_metacritic, job.fetch_pegi,
+                     job.fetch_stores):
             try:
                 step()
             except scrapers.StopRequested:
@@ -412,6 +413,9 @@ class Job:
                                     params={"appids": appid, "filters": "genres"})
                     genres = scrapers.parse_steam_genres(r2.text, appid)
                 steam_done += 1
+                if appid:
+                    with db.write_lock(), self.conn:
+                        self.conn.execute("UPDATE games SET steam_appid=? WHERE id=?", (appid, g["id"]))
             with db.write_lock(), self.conn:
                 self.conn.execute("UPDATE games SET genres=?, genre_checked_at=? WHERE id=?",
                                   (", ".join(genres), now_iso(), g["id"]))
@@ -472,6 +476,49 @@ class Job:
                     (hit["metascore"] if hit else None, hit["url"] if hit else None, now_iso(), g["id"]))
         self.stats["metacritic_checked"] = len(rows)
         self.stats["metacritic_found"] = found
+
+    def _store_get(self, url, delay, params, gid):
+        """A store lookup; one odd answer skips the game, blocking (403/429) and outages stop the step."""
+        try:
+            return self.f.get(url, delay, params=params, accept_404=True)
+        except scrapers.HTTPStatusError as e:
+            if e.status in (0, 403, 429) or e.status >= 500:
+                raise
+            log.warning("store lookup %s: skipping game %s (%s)", e.status, gid, url)
+            return None
+
+    def fetch_stores(self):
+        """Steam app and Nintendo eShop page for the platform links (PlayStation links to a store search)."""
+        retry_before = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows = self.conn.execute(
+            """SELECT * FROM (
+                 SELECT g.id, g.name, g.steam_appid, g.eshop_url, g.stores_checked_at,
+                   EXISTS(SELECT 1 FROM game_platform p WHERE p.game_id=g.id AND p.platform='PC') AS pc,
+                   EXISTS(SELECT 1 FROM game_platform p WHERE p.game_id=g.id AND p.platform LIKE 'Switch%') AS sw
+                 FROM games g)
+               WHERE (pc AND steam_appid IS NULL) OR (sw AND eshop_url IS NULL)
+               ORDER BY stores_checked_at IS NOT NULL""").fetchall()
+        rows = [g for g in rows if self.full or not g["stores_checked_at"] or g["stores_checked_at"] < retry_before]
+        steam = eshop = 0
+        for i, g in enumerate(rows, 1):
+            self.status("running", "Store links", i, len(rows))
+            appid, url = g["steam_appid"], g["eshop_url"]
+            if g["pc"] and not appid:
+                r = self._store_get(f"{scrapers.STEAM}/api/storesearch/", config.DELAY_STEAM,
+                                    {"term": g["name"], "l": "english", "cc": "us"}, g["id"])
+                appid = r is not None and scrapers.parse_steam_search(r.text, g["name"]) or None
+                steam += bool(appid)
+            if g["sw"] and not url:
+                r = self._store_get(scrapers.NINTENDO_SEARCH, config.DELAY_NINTENDO,
+                                    scrapers.nintendo_search_params(g["name"]), g["id"])
+                url = r is not None and scrapers.parse_nintendo_search(r.text, g["name"]) or None
+                eshop += bool(url)
+            with db.write_lock(), self.conn:
+                self.conn.execute("UPDATE games SET steam_appid=?, eshop_url=?, stores_checked_at=? WHERE id=?",
+                                  (appid, url, now_iso(), g["id"]))
+        self.stats["stores_checked"] = len(rows)
+        self.stats["steam_found"] = steam
+        self.stats["eshop_found"] = eshop
 
     def fetch_pegi(self):
         retry_before = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")

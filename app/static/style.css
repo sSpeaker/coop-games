@@ -83,7 +83,6 @@ select.sel { height: 38px; border-radius: 10px; border: 1px solid var(--line2); 
 .card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; transition: border-color .2s, transform .2s; }
 .card:hover { border-color: #3a404c; transform: translateY(-2px); }
 .card.played { border-color: #2f6b46; }
-.card.played .cover img { filter: grayscale(.6) brightness(.75); }
 .cover { position: relative; display: block; aspect-ratio: 460 / 215; background: #232731; }
 .cover img { width: 100%; height: 100%; object-fit: cover; }
 .cover .noimg { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--head); font-size: 22px; color: #4b5160; padding: 10px; text-align: center; }

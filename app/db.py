@@ -126,6 +126,9 @@ MIGRATIONS = [
     ("games", "metascore", "INTEGER"),
     ("games", "mc_url", "TEXT"),
     ("games", "mc_checked_at", "TEXT"),
+    ("games", "steam_appid", "INTEGER"),
+    ("games", "eshop_url", "TEXT"),
+    ("games", "stores_checked_at", "TEXT"),
 ]
 
 

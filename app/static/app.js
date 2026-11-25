@@ -191,6 +191,11 @@ function stateToParams(s) {
   p.set('dir', s.dir);
   return p;
 }
+// Played games leave the plain lists, but searches and the want/skip lists still show them.
+function playedMode(s) {
+  if (s.played === 'show' || s.played === 'only' || s.played === 'hide') return s.played;
+  return s.q || s.want === 'only' || s.skip === 'only' ? 'show' : 'hide';
+}
 function apiParams(s, offset, limit = 60) {
   const p = new URLSearchParams();
   if (s.q) p.set('q', s.q);
@@ -201,8 +206,9 @@ function apiParams(s, offset, limit = 60) {
   if (s.plats.length) p.set('platforms', s.plats.join(','));
   if (s.yf) p.set('year_from', s.yf);
   if (s.yt) p.set('year_to', s.yt);
-  if (s.played === 'hide') p.set('hide_played', 'true');
-  if (s.played === 'only') p.set('only_played', 'true');
+  const pm = playedMode(s);
+  if (pm === 'hide') p.set('hide_played', 'true');
+  if (pm === 'only') p.set('only_played', 'true');
   if (s.want === 'hide') p.set('hide_want', 'true');
   if (s.want === 'only') p.set('only_want', 'true');
   if (s.skip === 'show') p.set('show_skipped', 'true');
@@ -250,7 +256,7 @@ async function renderList(token, genre, params) {
           <select class="sel" id="yf" aria-label="Released from year"><option value="0">from any</option>${years.slice().reverse().map((y) => `<option ${y === s.yf ? 'selected' : ''}>${y}</option>`).join('')}</select>
           <select class="sel" id="yt" aria-label="Released to year"><option value="0">to any</option>${years.map((y) => `<option ${y === s.yt ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
         <div class="fgroup"><span class="lbl" style="width:auto">Played</span>
-          ${[['', 'All'], ['hide', 'Hide'], ['only', 'Only']].map(([k, l]) => pill(s.played === k, `data-played="${k}"`, l)).join('')}</div>
+          ${[['hide', 'Hide'], ['show', 'Show'], ['only', 'Only']].map(([k, l]) => pill(playedMode(s) === k, `data-played="${k}"`, l)).join('')}</div>
         <div class="fgroup"><span class="lbl" style="width:auto">Want to play</span>
           ${[['', 'All'], ['hide', 'Hide'], ['only', 'Only']].map(([k, l]) => pill(s.want === k, `data-want="${k}"`, l)).join('')}</div>
         <div class="fgroup"><span class="lbl" style="width:auto">Not interested</span>
@@ -258,7 +264,7 @@ async function renderList(token, genre, params) {
         <button type="button" class="linkbtn" id="reset">Reset filters</button>
       </div>
     </div>
-    <div class="grid" id="grid" data-skip-mode="${s.skip}"></div>
+    <div class="grid" id="grid" data-skip-mode="${s.skip}" data-played-mode="${playedMode(s)}"></div>
     <div class="more" id="more"></div>`;
 
   app.querySelectorAll('[data-sort]').forEach((b) => b.onclick = () => apply({ ...s, sort: b.dataset.sort }));
@@ -268,7 +274,11 @@ async function renderList(token, genre, params) {
   app.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => apply({ ...s, modes: toggle(s.modes, b.dataset.mode) }));
   app.querySelectorAll('[data-plat]').forEach((b) => b.onclick = () => apply({ ...s, plats: toggle(s.plats, b.dataset.plat) }));
   app.querySelectorAll('[data-pegi]').forEach((b) => b.onclick = () => apply({ ...s, pegi: +b.dataset.pegi }));
-  app.querySelectorAll('[data-played]').forEach((b) => b.onclick = () => apply({ ...s, played: b.dataset.played }));
+  // Picking the mode this view would use anyway keeps the URL clean, so a later search still shows played games.
+  app.querySelectorAll('[data-played]').forEach((b) => b.onclick = () => {
+    const k = b.dataset.played;
+    apply({ ...s, played: k === playedMode({ ...s, played: '' }) ? '' : k });
+  });
   app.querySelectorAll('[data-want]').forEach((b) => b.onclick = () => apply({ ...s, want: b.dataset.want }));
   app.querySelectorAll('[data-skip]').forEach((b) => b.onclick = () => apply({ ...s, skip: b.dataset.skip }));
   if ($('#unrated')) $('#unrated').onchange = (e) => apply({ ...s, unrated: e.target.checked });
@@ -371,8 +381,11 @@ function bindMarks(root) {
         const cardEl = b.closest('.card');
         if (cardEl) {
           const is = (k) => scope.querySelector(MARK_SEL[k]).getAttribute('aria-pressed') === 'true';
-          const mode = cardEl.closest('#grid')?.dataset.skipMode || '';
-          if ((mode === '' && is('skip')) || (mode === 'only' && !is('skip'))) {
+          const grid = cardEl.closest('#grid');
+          const mode = grid?.dataset.skipMode || '';
+          const pm = grid?.dataset.playedMode || 'show';
+          if ((mode === '' && is('skip')) || (mode === 'only' && !is('skip'))
+              || (pm === 'hide' && is('played')) || (pm === 'only' && !is('played'))) {
             dropCard(cardEl);
           } else {
             cardEl.classList.toggle('played', is('played'));
@@ -404,6 +417,11 @@ async function renderGame(token, id) {
   if (token !== renderToken) return;
   const yt = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(g.name + ' co-op gameplay');
   const trailers = g.trailers || [];
+  // Platform names open the game in that platform's store (a store search when the page is unknown).
+  const shop = (platform) => {
+    const st = (g.stores || []).find((x) => x.platform === platform);
+    return st ? `<a href="${esc(st.url)}" target="_blank" rel="noopener" title="${esc(st.store + (st.exact ? '' : ' search'))}">${esc(platform)}</a>` : esc(platform);
+  };
   app.innerHTML = `
     <a class="back" href="javascript:history.back()">${ICON.back} Back</a>
     <div class="game-hero">
@@ -430,17 +448,17 @@ async function renderGame(token, id) {
           <div><div class="k">Metascore</div><div>${g.mc_url ? `<a href="${esc(g.mc_url)}" target="_blank" rel="noopener">${g.metascore ?? 'tbd'}</a>` : 'n/a'}</div></div>
           <div><div class="k">Age rating</div><div>${g.pegi ? 'PEGI ' + g.pegi : 'unknown'}</div></div>
           <div><div class="k">Released</div><div>${fmtDate(g.release_date)}</div></div>
-          <div><div class="k">Platforms</div><div>${esc(g.platforms.join(', '))}</div></div>
+          <div><div class="k">Platforms</div><div>${g.platforms.map(shop).join(', ')}</div></div>
           <div style="grid-column:1/-1"><div class="k">Genres</div><div class="tags" style="margin-top:4px">${g.genres.map((x) => `<a class="tag" href="#/genre/${encodeURIComponent(x)}">${esc(x)}</a>`).join('')}</div></div>
         </div>
         <div class="panel"><h2>Co-op</h2>
           ${g.coop.length ? `<table class="cooptab"><thead><tr><th>Platform</th><th>Online</th><th>Couch</th><th>LAN</th></tr></thead><tbody>
-            ${g.coop.map((c) => `<tr><td><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.platform)}</a></td><td>${c.online || '—'}</td><td>${c.couch || '—'}</td><td>${c.lan || '—'}</td></tr>`).join('')}
+            ${g.coop.map((c) => `<tr><td>${shop(c.platform)}</td><td>${c.online || '—'}</td><td>${c.couch || '—'}</td><td>${c.lan || '—'}</td></tr>`).join('')}
           </tbody></table>
           ${g.features.length ? `<div class="tags" style="margin-top:10px">${g.features.map((f) => `<span class="tag">${esc(f)}</span>`).join('')}</div>` : ''}`
           : '<p class="muted" style="margin:0">Co-op tag from OpenCritic only; Co-optimus has no details for this game.</p>'}
         </div>
-        <a href="${esc(g.url)}" target="_blank" rel="noopener">View on OpenCritic</a>
+        <div class="links"><a href="${esc(g.url)}" target="_blank" rel="noopener">View on OpenCritic</a>${g.coop.length ? ` · <a href="${esc(g.coop[0].url)}" target="_blank" rel="noopener">Co-optimus</a>` : ''}</div>
       </aside>
     </div>`;
   bindMarks(app);
