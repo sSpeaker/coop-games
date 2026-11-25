@@ -165,6 +165,7 @@ def test_api():
         assert names(c.get("/api/games?only_skipped=true")) == []
         assert c.put("/api/skip/1").json()["skip"] is True and c.delete("/api/skip/1").json() == {"skip": False}
         assert c.get("/").status_code == 200 and c.get("/static/app.js").status_code == 200
+        assert "/static/app.js?v=" in c.get("/").text and c.get("/").headers["cache-control"] == "no-cache"
 
 
 def test_import_cooptimus():

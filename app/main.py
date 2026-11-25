@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -6,7 +7,7 @@ import time
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db, scrapers, seed, updater
@@ -61,9 +62,23 @@ def startup():
     threading.Thread(target=scheduler, daemon=True, name="scheduler").start()
 
 
+def _index_html():
+    """index.html with asset URLs tagged by content hash, so a new deploy is never served from a stale browser cache."""
+    with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as fh:
+        html = fh.read()
+    for name in ("app.js", "style.css"):
+        with open(os.path.join(STATIC, name), "rb") as fh:
+            v = hashlib.sha1(fh.read()).hexdigest()[:10]
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={v}")
+    return html
+
+
+INDEX_HTML = _index_html()
+
+
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(STATIC, "index.html"))
+    return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})
 
 
 def _game_dict(r, played, want=frozenset(), skip=frozenset()):
